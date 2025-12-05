@@ -11,6 +11,7 @@ import json
 from tkinter import EXCEPTION
 from naragtive.polars_vectorstore import PolarsVectorStore, SceneQueryFormatter
 from naragtive.bge_reranker_integration import PolarsVectorStoreWithReranker
+from naragtive import ingest_chat_transcripts as ict
 
 
 def migrate_command(args):
