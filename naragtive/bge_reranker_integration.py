@@ -6,7 +6,6 @@ Direct in-process reranking with FP16 optimization
 
 import numpy as np
 from typing import Dict, List, Any, Tuple
-from sentence_transformers import SentenceTransformer
 
 
 class BGERerankerM3:
@@ -111,7 +110,7 @@ class PolarsVectorStoreWithReranker:
             parquet_path: Path to parquet file
             use_reranker: Enable BGE reranking (add ~2GB VRAM)
         """
-        from polars_vectorstore import PolarsVectorStore
+        from naragtive.polars_vectorstore import PolarsVectorStore
         
         self.store = PolarsVectorStore(parquet_path)
         self.reranker = None
