@@ -1,25 +1,74 @@
+from __future__ import annotations
+
 #!/usr/bin/env python3
 """
-Export scene search results in formats ready for reranking
-Supports BGE reranker models and context packaging for LLM consumption
+Export scene search results in formats suitable for reranking and LLM consumption.
+
+Provides multiple output formats for downstream integration with:
+- BGE reranker models
+- Language models (LLM prompts)
+- Llamafile/llama-server
+- Batch processing pipelines
+- RAG (Retrieval-Augmented Generation) systems
 """
 
 import json
-from typing import Dict, List, Any
+from typing import Any
 
 
 class RerankerExporter:
-    """Export search results in formats suitable for reranking pipelines"""
+    """
+    Export search results in formats suitable for reranking and integration.
+    
+    Provides methods to convert vector store query results into formats
+    optimized for different downstream consumers.
+    
+    Example:
+        ```python
+        store = PolarsVectorStore("./scenes.parquet")
+        store.load()
+        results = store.query("Admiral leadership", n_results=10)
+        
+        exporter = RerankerExporter()
+        
+        # For LLM context
+        context = exporter.format_for_llm_context(results, "Admiral leadership")
+        
+        # For BGE reranker
+        pairs = exporter.format_for_bge_reranker(results, "Admiral leadership")
+        ```
+    """
     
     @staticmethod
-    def format_for_bge_reranker(results: Dict[str, Any], query: str) -> List[Dict[str, str]]:
+    def format_for_bge_reranker(
+        results: dict[str, Any],
+        query: str
+    ) -> list[dict[str, str]]:
         """
-        Format results for BGE reranker (bge-reranker-large, bge-reranker-base, etc.)
-        BGE expects: [{"text": "...", "query": "..."}, ...]
-        Returns list of query-document pairs ready for reranking
+        Format results for BGE cross-encoder reranker.
+        
+        BGE reranker expects query-document pairs as input.
+        This method creates pairs ready for reranking.
+        
+        Args:
+            results: Results dictionary from vector store query
+            query: Original search query string
+            
+        Returns:
+            List of query-document pair dictionaries with keys:
+                - 'text': Document text
+                - 'query': Query string
+                - 'doc_id': Document ID
+                
+        Example:
+            ```python
+            results = store.query("Admiral command")
+            pairs = exporter.format_for_bge_reranker(results, "Admiral command")
+            # [{'text': '...', 'query': 'Admiral command', 'doc_id': 'scene_0001'}, ...]
+            ```
         """
-        pairs = []
-        for doc_id, text in zip(results['ids'], results['documents']):
+        pairs: list[dict[str, str]] = []
+        for doc_id, text in zip(results["ids"], results["documents"]):
             pairs.append({
                 "text": text,
                 "query": query,
@@ -28,12 +77,34 @@ class RerankerExporter:
         return pairs
     
     @staticmethod
-    def format_for_llm_context(results: Dict[str, Any], query: str, max_tokens: int = 4000) -> str:
+    def format_for_llm_context(
+        results: dict[str, Any],
+        query: str,
+        max_tokens: int = 4000
+    ) -> str:
         """
-        Format results as markdown context for LLM prompt
-        Includes metadata and proper citations
+        Format results as markdown context for LLM prompt injection.
+        
+        Creates a markdown document with proper citations, metadata,
+        and text snippets suitable for including in LLM prompts.
+        
+        Args:
+            results: Results dictionary from vector store query
+            query: Original search query string
+            max_tokens: Maximum tokens to include (approximate).
+                Default: 4000
+                
+        Returns:
+            Formatted markdown string with citations
+            
+        Example:
+            ```python
+            results = store.query("Admiral leadership", n_results=5)
+            context = exporter.format_for_llm_context(results, "Admiral leadership")
+            print(context)  # Ready to paste into LLM prompt
+            ```
         """
-        context = []
+        context: list[str] = []
         context.append(f"# Search Results for: '{query}'\n")
         context.append(f"Found {len(results['ids'])} relevant scenes:\n")
         
@@ -42,10 +113,10 @@ class RerankerExporter:
         
         for i, (scene_id, text, metadata, score) in enumerate(
             zip(
-                results['ids'],
-                results['documents'],
-                results['metadatas'],
-                results['scores']
+                results["ids"],
+                results["documents"],
+                results["metadatas"],
+                results["scores"]
             ),
             1
         ):
@@ -71,26 +142,49 @@ class RerankerExporter:
         return "\n".join(context)
     
     @staticmethod
-    def format_for_llamafile(results: Dict[str, Any], query: str) -> Dict[str, Any]:
+    def format_for_llamafile(
+        results: dict[str, Any],
+        query: str
+    ) -> dict[str, Any]:
         """
-        Format results for llamafile/llama-server context window
-        Ready for injection into system prompt or user message
+        Format results for llamafile/llama-server integration.
+        
+        Creates JSON payload with documents, metadata, and system instructions
+        for llamafile/llama-cpp-python server integration.
+        
+        Args:
+            results: Results dictionary from vector store query
+            query: Original search query string
+            
+        Returns:
+            Dictionary with:
+                - 'query': Search query
+                - 'document_count': Number of documents
+                - 'documents': List of document dicts with content and metadata
+                - 'instructions': System instructions for LLM
+                
+        Example:
+            ```python
+            results = store.query("Admiral command", n_results=5)
+            payload = exporter.format_for_llamafile(results, "Admiral command")
+            # Send to llamafile server
+            ```
         """
-        documents = []
+        documents: list[dict[str, Any]] = []
         for scene_id, text, metadata, score in zip(
-            results['ids'],
-            results['documents'],
-            results['metadatas'],
-            results['scores']
+            results["ids"],
+            results["documents"],
+            results["metadatas"],
+            results["scores"]
         ):
             documents.append({
                 "id": scene_id,
                 "content": text,
                 "metadata": {
-                    "date": metadata.get('date_iso'),
-                    "location": metadata.get('location'),
-                    "pov": metadata.get('pov_character'),
-                    "characters": json.loads(metadata.get('characters_present', '[]')),
+                    "date": metadata.get("date_iso"),
+                    "location": metadata.get("location"),
+                    "pov": metadata.get("pov_character"),
+                    "characters": json.loads(metadata.get("characters_present", "[]")),
                     "relevance_score": float(score),
                 }
             })
@@ -106,17 +200,37 @@ If information contradicts between sources, note the discrepancy."""
         }
     
     @staticmethod
-    def format_for_json_batch(results: Dict[str, Any], query: str) -> str:
+    def format_for_json_batch(
+        results: dict[str, Any],
+        query: str
+    ) -> str:
         """
-        Export as JSONL (JSON Lines) for batch processing
-        One JSON object per line, suitable for processing pipelines
+        Export as JSONL (JSON Lines) for batch processing.
+        
+        Creates one JSON object per line, suitable for processing
+        with tools like jq or batch pipelines.
+        
+        Args:
+            results: Results dictionary from vector store query
+            query: Original search query string
+            
+        Returns:
+            String with newline-separated JSON objects
+            
+        Example:
+            ```python
+            results = store.query("Admiral command")
+            jsonl = exporter.format_for_json_batch(results, "Admiral command")
+            with open("results.jsonl", "w") as f:
+                f.write(jsonl)
+            ```
         """
-        lines = []
+        lines: list[str] = []
         for scene_id, text, metadata, score in zip(
-            results['ids'],
-            results['documents'],
-            results['metadatas'],
-            results['scores']
+            results["ids"],
+            results["documents"],
+            results["metadatas"],
+            results["scores"]
         ):
             line = {
                 "query": query,
@@ -131,18 +245,51 @@ If information contradicts between sources, note the discrepancy."""
     
     @staticmethod
     def format_for_retrieval_augmented_generation(
-        results: Dict[str, Any], 
+        results: dict[str, Any],
         query: str,
         template: str = "default"
     ) -> str:
         """
-        Format for RAG/prompt injection
-        Default template suitable for most LLMs
+        Format for RAG (Retrieval-Augmented Generation) applications.
+        
+        Provides multiple templates for different RAG use cases:
+        - "default": Numbered citations with full metadata
+        - "minimal": Just concatenated text with minimal formatting
+        - "structured": JSON array format for parsing
+        
+        Args:
+            results: Results dictionary from vector store query
+            query: Original search query string
+            template: Output template ("default", "minimal", "structured").
+                Default: "default"
+                
+        Returns:
+            Formatted string in requested template
+            
+        Example:
+            ```python
+            results = store.query("Admiral leadership")
+            
+            # For LLM consumption
+            context = exporter.format_for_retrieval_augmented_generation(
+                results, "Admiral leadership", template="default"
+            )
+            
+            # Minimal version for token-constrained scenarios
+            minimal = exporter.format_for_retrieval_augmented_generation(
+                results, "Admiral leadership", template="minimal"
+            )
+            
+            # Structured for parsing
+            structured = exporter.format_for_retrieval_augmented_generation(
+                results, "Admiral leadership", template="structured"
+            )
+            ```
         """
         if template == "default":
             context = "# Retrieved Context\n\n"
             for i, (scene_id, text, metadata) in enumerate(
-                zip(results['ids'], results['documents'], results['metadatas']),
+                zip(results["ids"], results["documents"], results["metadatas"]),
                 1
             ):
                 context += f"[{i}] {scene_id}\n"
@@ -151,18 +298,20 @@ If information contradicts between sources, note the discrepancy."""
         
         elif template == "minimal":
             # Just concatenate texts with minimal formatting
-            return "\n\n".join([f"[{sid}] {text}" for sid, text in zip(results['ids'], results['documents'])])
+            return "\n\n".join(
+                [f"[{sid}] {text}" for sid, text in zip(results["ids"], results["documents"])]
+            )
         
         elif template == "structured":
             # Highly structured for parsing
-            docs = []
-            for sid, text, meta in zip(results['ids'], results['documents'], results['metadatas']):
+            docs: list[dict[str, Any]] = []
+            for sid, text, meta in zip(results["ids"], results["documents"], results["metadatas"]):
                 docs.append({
                     "source": sid,
                     "content": text,
                     "context": {
-                        "date": meta.get('date_iso'),
-                        "location": meta.get('location'),
+                        "date": meta.get("date_iso"),
+                        "location": meta.get("location"),
                     }
                 })
             return json.dumps(docs, indent=2)
@@ -170,8 +319,23 @@ If information contradicts between sources, note the discrepancy."""
         return "Unknown template"
 
 
-def add_export_command(subparsers):
-    """Add export command to CLI (call from scene_search.py main())"""
+def add_export_command(subparsers: Any) -> None:
+    """
+    Add export command to CLI argument parser.
+    
+    Called from main.py to register the export command.
+    
+    Args:
+        subparsers: ArgumentParser subparsers object from argparse
+        
+    Example:
+        ```python
+        # In main.py
+        parser = argparse.ArgumentParser()
+        subparsers = parser.add_subparsers()
+        add_export_command(subparsers)
+        ```
+    """
     
     export_parser = subparsers.add_parser("export", help="Export search results for reranking/LLM")
     export_parser.add_argument("query", help="Search query")
@@ -199,9 +363,15 @@ def add_export_command(subparsers):
     export_parser.set_defaults(func=export_command)
 
 
-def export_command(args):
-    """Execute export command"""
-    from polars_vectorstore import PolarsVectorStore
+def export_command(args: Any) -> None:
+    """
+    Execute export command from CLI.
+    
+    Args:
+        args: Parsed command-line arguments from argparse
+    """
+    import sys
+    from naragtive.polars_vectorstore import PolarsVectorStore
     
     store = PolarsVectorStore(args.store)
     if not store.load():
@@ -226,27 +396,45 @@ def export_command(args):
         output = exporter.format_for_retrieval_augmented_generation(results, args.query, "minimal")
     elif args.format == "rag-structured":
         output = exporter.format_for_retrieval_augmented_generation(results, args.query, "structured")
+    else:
+        print(f"❌ Unknown format: {args.format}")
+        sys.exit(1)
     
-    # Output
+    # Output to file or stdout
     if args.output:
-        with open(args.output, 'w') as f:
+        with open(args.output, "w") as f:
             f.write(output)
         print(f"✅ Exported to {args.output}")
     else:
         print(output)
 
 
-if __name__ == "__main__":
-    # Quick test
+def main() -> None:
+    """
+    Demo: Show all export format examples.
+    
+    Demonstrates each export format with sample data.
+    """
     import sys
+    
     test_results = {
-        'ids': ['scene_001', 'scene_002'],
-        'documents': ['The Admiral commanded the fleet.', 'The captain saluted.'],
-        'metadatas': [
-            {'date_iso': '2025-11-10', 'location': 'bridge', 'pov_character': 'Venice', 'characters_present': '["Admiral", "Captain"]'},
-            {'date_iso': '2025-11-10', 'location': 'bridge', 'pov_character': 'User', 'characters_present': '["Captain"]'},
+        "ids": ["scene_001", "scene_002"],
+        "documents": ["The Admiral commanded the fleet.", "The captain saluted."],
+        "metadatas": [
+            {
+                "date_iso": "2025-11-10",
+                "location": "bridge",
+                "pov_character": "Venice",
+                "characters_present": '["Admiral", "Captain"]'
+            },
+            {
+                "date_iso": "2025-11-10",
+                "location": "bridge",
+                "pov_character": "User",
+                "characters_present": '["Captain"]'
+            },
         ],
-        'scores': [0.85, 0.72],
+        "scores": [0.85, 0.72],
     }
     
     exporter = RerankerExporter()
@@ -257,3 +445,7 @@ if __name__ == "__main__":
     print(exporter.format_for_llm_context(test_results, "Admiral command"))
     print("\n=== Llamafile Format ===")
     print(json.dumps(exporter.format_for_llamafile(test_results, "Admiral command"), indent=2))
+
+
+if __name__ == "__main__":
+    main()
