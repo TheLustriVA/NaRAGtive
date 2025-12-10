@@ -185,7 +185,7 @@ class RerankerExporter:
                     "location": metadata.get("location"),
                     "pov": metadata.get("pov_character"),
                     "characters": json.loads(metadata.get("characters_present", "[]")),
-                    "relevance_score": float(score),
+                    "relevance_score": score,
                 }
             })
         
@@ -236,7 +236,7 @@ If information contradicts between sources, note the discrepancy."""
                 "query": query,
                 "scene_id": scene_id,
                 "text": text,
-                "relevance_score": float(score),
+                "relevance_score": score,
                 "metadata": metadata,
             }
             lines.append(json.dumps(line))

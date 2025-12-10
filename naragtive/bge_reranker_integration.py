@@ -1,6 +1,8 @@
-from __future__ import annotations
-
 #!/usr/bin/env python3
+from __future__ import annotations
+import numpy as np
+from typing import Any, Optional
+
 """
 BGE Reranker v2 M3 integration for Polars vector store.
 
@@ -10,9 +12,6 @@ retrieval-augmented generation (RAG) workflows.
 The BGE (BAAI General Embeddings) reranker v2 M3 is a cross-encoder that
 re-ranks embedding search results for improved accuracy.
 """
-
-import numpy as np
-from typing import Any, Optional
 
 
 class BGERerankerM3:

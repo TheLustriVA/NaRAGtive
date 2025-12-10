@@ -135,6 +135,7 @@ class PolarsVectorStore:
         
         # Get all data from ChromaDB
         all_data = collection.get(limit=None)
+        assert all_data is not None, "ChromaDB collection returned None" 
         
         print(f"Extracting {len(all_data['ids'])} documents from ChromaDB...")
         
@@ -154,7 +155,10 @@ class PolarsVectorStore:
         })
         
         # Cache embeddings
-        self.embeddings_cache = np.array(embeddings, dtype=np.float32)
+        assert self.df is not None
+        embeddings_list = self.df["embedding"].to_list()
+        assert embeddings_list is not None
+        self.embeddings_cache = np.array(embeddings_list, dtype=np.float32)
         
         # Save to parquet
         self.df.write_parquet(self.parquet_path)
@@ -199,6 +203,11 @@ class PolarsVectorStore:
         """
         if self.df is None:
             self.load()
+        
+        assert self.df is not None, "Vector store failed to load"
+        assert self.embeddings_cache is not None, "Embeddings not cached"
+        
+        assert isinstance(query_text, str), "query_text must be string"
         
         # Encode query into embedding
         query_emb = self.embedding_model.encode(
@@ -254,6 +263,8 @@ class PolarsVectorStore:
         """
         if self.df is None:
             self.load()
+        
+        assert self.df is not None, "Vector store failed to load"
         
         file_size = self.parquet_path.stat().st_size / 1024 / 1024
         ram_size = len(self.df) * 384 * 4 / 1024 / 1024  # embeddings only
