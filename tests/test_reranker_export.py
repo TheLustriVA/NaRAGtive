@@ -84,7 +84,8 @@ class TestRerankerExporter:
         )
         
         assert isinstance(result, str)
-        assert "[scene_0001]" in result
+        # Scene ID includes date suffix, so check for scene_0001_2025-11-10
+        assert "scene_0001_2025-11-10" in result
     
     def test_format_for_rag_structured(
         self,
