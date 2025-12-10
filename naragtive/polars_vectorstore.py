@@ -11,7 +11,7 @@ No external databases required - just parquet files.
 
 import json
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 import numpy as np
 import polars as pl
@@ -134,8 +134,7 @@ class PolarsVectorStore:
         collection = client.get_collection(scene_collection_name)
         
         # Get all data from ChromaDB
-        all_data = collection.get(limit=None)
-        assert all_data is not None, "ChromaDB collection returned None" 
+        all_data = cast(dict[str, list], collection.get(limit=None)) 
         
         print(f"Extracting {len(all_data['ids'])} documents from ChromaDB...")
         

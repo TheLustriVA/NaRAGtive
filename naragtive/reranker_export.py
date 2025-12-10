@@ -108,7 +108,7 @@ class RerankerExporter:
         context.append(f"# Search Results for: '{query}'\n")
         context.append(f"Found {len(results['ids'])} relevant scenes:\n")
         
-        token_count = 0
+        token_count = 0.0
         max_chars = max_tokens * 4  # Rough estimate: 1 token ≈ 4 chars
         
         for i, (scene_id, text, metadata, score) in enumerate(
