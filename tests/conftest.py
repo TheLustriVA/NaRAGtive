@@ -36,6 +36,18 @@ def sample_metadata_list() -> list[dict[str, Any]]:
             "emotional_intensity": 0.6,
             "action_level": 0.4,
         },
+        {
+            "scene_id": "scene_0002_2025-11-10",
+            "date_iso": "2025-11-10",
+            "location": "medbay",
+            "pov_character": "Heidi",
+            "characters_present": json.dumps(["Heidi", "Petrova"]),
+            "ships": ["ThunderChild"],
+            "events": ["scanning"],
+            "tone": "emotional",
+            "emotional_intensity": 0.8,
+            "action_level": 0.1,
+        },
     ]
 
 
@@ -46,24 +58,136 @@ def sample_search_results(
 ) -> dict[str, Any]:
     """Sample vector store search results."""
     return {
-        "ids": ["scene_0001_2025-11-10"],
-        "documents": ["The Admiral stepped onto the bridge."],
-        "metadatas": sample_metadata_list[:1],
-        "scores": sample_embedding_scores[:1],
-        "distances": [[1 - sample_embedding_scores[0]]],
+        "ids": ["scene_0001_2025-11-10", "scene_0002_2025-11-10"],
+        "documents": [
+            "The Admiral stepped onto the bridge, her presence commanding immediate attention.",
+            "Dr. Rizzo ran the scans three times. The results didn't change.",
+        ],
+        "metadatas": sample_metadata_list[:2],
+        "scores": sample_embedding_scores[:2],
+        "distances": [[1 - s] for s in sample_embedding_scores[:2]],
     }
 
 
 @pytest.fixture
 def sample_reranked_results(
-    sample_search_results: dict[str, Any],
+    sample_embedding_scores: list[float],
     sample_rerank_scores: list[float],
+    sample_metadata_list: list[dict[str, Any]],
 ) -> dict[str, Any]:
     """Sample two-stage retrieval results."""
-    result = sample_search_results.copy()
-    result["embedding_scores"] = result.pop("scores")
-    result["rerank_scores"] = sample_rerank_scores[:1]
-    result["reranked"] = True
-    result["rerank_method"] = "bge-v2-m3"
-    result["initial_search_count"] = 50
-    return result
+    return {
+        "ids": ["scene_0001_2025-11-10", "scene_0002_2025-11-10"],
+        "documents": [
+            "The Admiral stepped onto the bridge, her presence commanding.",
+            "Dr. Rizzo ran the scans three times.",
+        ],
+        "metadatas": sample_metadata_list[:2],
+        "embedding_scores": sample_embedding_scores[:2],
+        "rerank_scores": sample_rerank_scores[:2],
+        "reranked": True,
+        "rerank_method": "bge-v2-m3",
+        "initial_search_count": 50,
+    }
+
+
+@pytest.fixture
+def sample_neptune_export() -> str:
+    """Sample Neptune AI RP export format."""
+    return """# Conversation: ThunderChild Mission Log
+
+***11/10/2025, 4:00:41 AM - Venice:***
+The Admiral stepped into the command center, her presence commanding immediate attention. I moved aside, giving her space.
+
+---
+
+***11/10/2025, 4:00:50 AM - Admiral Zelenskyy:***
+She nods curtly, then moves to the main display. Status report. I want details on that engine burn.
+
+"""
+
+
+@pytest.fixture
+def sample_polars_dataframe(sample_metadata_list: list[dict[str, Any]]) -> pl.DataFrame:
+    """Sample Polars DataFrame with mock scene data."""
+    embeddings = [
+        np.random.randn(384).tolist() for _ in range(2)
+    ]
+    
+    return pl.DataFrame({
+        "id": ["scene_0001_2025-11-10", "scene_0002_2025-11-10"],
+        "text": [
+            "The Admiral stepped onto the bridge, her presence commanding immediate attention.",
+            "Dr. Rizzo ran the scans three times. The results didn't change.",
+        ],
+        "embedding": embeddings,
+        "metadata": [json.dumps(m) for m in sample_metadata_list],
+    })
+
+
+@pytest.fixture
+def sample_turn_list() -> list[dict[str, Any]]:
+    """Sample parsed Neptune turns (as returned by NeptuneParser)."""
+    return [
+        {
+            "timestamp_raw": "11/10/2025, 4:00:41 AM",
+            "date_iso": "2025-11-10",
+            "time_display": "11/10/2025, 4:00:41 AM",
+            "speaker": "Venice",
+            "text": "The Admiral stepped onto the bridge, her presence commanding immediate attention. I moved aside, giving her space.",
+        },
+        {
+            "timestamp_raw": "11/10/2025, 4:00:50 AM",
+            "date_iso": "2025-11-10",
+            "time_display": "11/10/2025, 4:00:50 AM",
+            "speaker": "Admiral Zelenskyy",
+            "text": "She nods curtly, then moves to the main display. Status report. I want details on that engine burn.",
+        },
+    ]
+
+
+@pytest.fixture
+def sample_chat_json() -> str:
+    """Sample chat transcript in JSON format."""
+    return json.dumps([
+        {
+            "timestamp": "2025-12-05T10:30:00",
+            "user": "Kieran",
+            "message": "The Admiral stepped into the command center, her presence commanding immediate attention.",
+            "channel": "thunderchild",
+        },
+        {
+            "timestamp": "2025-12-05T10:31:00",
+            "user": "Venice",
+            "message": "I moved aside, giving her space. The bridge felt smaller with her presence.",
+            "channel": "thunderchild",
+        },
+        {
+            "timestamp": "2025-12-05T10:32:00",
+            "user": "Admiral",
+            "message": "Status report. I want details on that engine burn. Don't leave anything out.",
+            "channel": "thunderchild",
+        },
+    ])
+
+
+@pytest.fixture
+def mock_embedding_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Mock SentenceTransformer to return fake embeddings."""
+    class MockSentenceTransformer:
+        def __init__(self, model_name: str) -> None:
+            self.model_name = model_name
+        
+        def encode(self, texts: Any, **kwargs: Any) -> np.ndarray:
+            if isinstance(texts, str):
+                texts = [texts]
+            return np.random.randn(len(texts), 384).astype(np.float32)
+    
+    monkeypatch.setattr(
+        "naragtive.polars_vectorstore.SentenceTransformer",
+        MockSentenceTransformer
+    )
+    monkeypatch.setattr(
+        "naragtive.ingest_chat_transcripts.SentenceTransformer",
+        MockSentenceTransformer
+    )
