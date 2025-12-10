@@ -26,20 +26,19 @@ class TestPolarsVectorStoreWithRerankerFallback:
         assert store.reranker is None
     
     @patch('naragtive.bge_reranker_integration.BGERerankerM3')
-    @patch('naragtive.bge_reranker_integration.PolarsVectorStore')
     def test_query_and_rerank_fallback(
         self,
-        mock_vectorstore: Mock,
         mock_reranker: Mock,
         sample_search_results: dict[str, Any],
     ) -> None:
         """Test query_and_rerank falls back to embedding search when reranker fails."""
         mock_reranker.side_effect = Exception("GPU error")
-        mock_instance = MagicMock()
-        mock_vectorstore.return_value = mock_instance
-        mock_instance.query.return_value = sample_search_results
         
         store = PolarsVectorStoreWithReranker(use_reranker=True)
+        
+        # Mock the underlying vector store
+        store.store.query = MagicMock(return_value=sample_search_results)
+        
         results = store.query_and_rerank("test query")
         
         assert results["reranked"] is False
@@ -51,10 +50,8 @@ class TestPolarsVectorStoreWithRerankerRerank:
     """Test two-stage retrieval with reranking."""
     
     @patch('naragtive.bge_reranker_integration.BGERerankerM3')
-    @patch('naragtive.bge_reranker_integration.PolarsVectorStore')
     def test_query_and_rerank_structure(
         self,
-        mock_vectorstore: Mock,
         mock_reranker: Mock,
         sample_search_results: dict[str, Any],
         sample_rerank_scores: list[float],
@@ -68,11 +65,11 @@ class TestPolarsVectorStoreWithRerankerRerank:
             np.array([0, 1]),
         )
         
-        store_instance = MagicMock()
-        mock_vectorstore.return_value = store_instance
-        store_instance.query.return_value = sample_search_results
-        
         store = PolarsVectorStoreWithReranker(use_reranker=True)
+        
+        # Mock the underlying vector store query
+        store.store.query = MagicMock(return_value=sample_search_results)
+        
         results = store.query_and_rerank("test", initial_k=50, final_k=2)
         
         assert results["reranked"] is True
