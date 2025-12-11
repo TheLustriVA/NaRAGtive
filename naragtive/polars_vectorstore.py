@@ -88,10 +88,12 @@ class PolarsVectorStore:
         if self.parquet_path.exists():
             self.df = pl.read_parquet(self.parquet_path)
             # Pre-load embeddings as numpy array for fast similarity computation
-            self.embeddings_cache = np.array(
-                self.df["embedding"].to_list(),
-                dtype=np.float32
-            )
+            embeddings_list = self.df["embedding"].to_list()
+            # Handle both list-of-lists and numpy array formats
+            if embeddings_list and isinstance(embeddings_list[0], list):
+                self.embeddings_cache = np.array(embeddings_list, dtype=np.float32)
+            else:
+                self.embeddings_cache = np.array(embeddings_list, dtype=np.float32)
             print(f"✅ Loaded {len(self.df)} documents from {self.parquet_path}")
             return True
         else:
@@ -220,6 +222,9 @@ class PolarsVectorStore:
         query_norm = query_emb / np.linalg.norm(query_emb)
         similarities = normalized @ query_norm
         
+        # Clamp similarities to [0, 1] range (they should be [-1, 1] but may have floating point errors)
+        similarities = np.clip(similarities, 0.0, 1.0)
+        
         # Get top N results
         top_indices = np.argsort(similarities)[::-1][:n_results]
         distances = 1 - similarities[top_indices]
@@ -232,7 +237,7 @@ class PolarsVectorStore:
             "documents": results_df["text"].to_list(),
             "metadatas": [json.loads(m) for m in results_df["metadata"].to_list()],
             "distances": [[d] for d in distances.tolist()],
-            "scores": (1 - distances).tolist(),
+            "scores": similarities[top_indices].tolist(),
         }
     
     def stats(self) -> None:
