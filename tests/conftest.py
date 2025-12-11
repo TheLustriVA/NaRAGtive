@@ -111,18 +111,36 @@ She nods curtly, then moves to the main display. Status report. I want details o
 def sample_polars_dataframe(sample_metadata_list: list[dict[str, Any]]) -> pl.DataFrame:
     """Sample Polars DataFrame with mock scene data."""
     embeddings = [
-        np.random.randn(384).tolist() for _ in range(2)
+        np.random.randn(384).tolist() for _ in range(3)  # ← Changed from 2 to 3
     ]
     
+    # Create 3rd metadata item to have 3 rows
+    metadata_3 = {
+        "scene_id": "scene_0003_2025-11-10",
+        "date_iso": "2025-11-10",
+        "location": "engine_room",
+        "pov_character": "Tech",
+        "characters_present": json.dumps(["Tech", "Specialist"]),
+        "ships": ["ThunderChild"],
+        "events": ["maintenance"],
+        "tone": "technical",
+        "emotional_intensity": 0.2,
+        "action_level": 0.3,
+    }
+    
+    metadata_list = list(sample_metadata_list) + [metadata_3]
+    
     return pl.DataFrame({
-        "id": ["scene_0001_2025-11-10", "scene_0002_2025-11-10"],
+        "id": ["scene_0001_2025-11-10", "scene_0002_2025-11-10", "scene_0003_2025-11-10"],
         "text": [
             "The Admiral stepped onto the bridge, her presence commanding immediate attention.",
             "Dr. Rizzo ran the scans three times. The results didn't change.",
+            "The engine room hummed with activity as engineers made final adjustments.",
         ],
         "embedding": embeddings,
-        "metadata": [json.dumps(m) for m in sample_metadata_list],
+        "metadata": [json.dumps(m) for m in metadata_list],
     })
+
 
 
 @pytest.fixture
