@@ -191,7 +191,13 @@ class TestChatTranscriptIngester:
         """Test that JSON ingestion creates valid DataFrame."""
         mock_instance = MagicMock()
         mock_model.return_value = mock_instance
-        mock_instance.encode.return_value = []
+        
+        # Return 3 embeddings (one for each document), matching your sample data
+        mock_instance.encode.return_value = [
+            [0.1, 0.2, 0.3],  # embedding for document 1
+            [0.4, 0.5, 0.6],  # embedding for document 2
+            [0.7, 0.8, 0.9],  # embedding for document 3
+        ]
         
         json_file = tmp_path / "chat.json"
         json_file.write_text(sample_chat_json)
