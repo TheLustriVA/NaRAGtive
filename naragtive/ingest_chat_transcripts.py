@@ -218,16 +218,21 @@ class BaseIngester(ABC):
             print(
                 f"   ⚠️  Found {len(duplicates)} duplicate IDs, removing from new data"
             )
+            # Only filter if there are actual duplicates to remove
             new_df = new_df.filter(~pl.col("id").is_in(list(duplicates)))
 
-        # Concatenate
-        merged = pl.concat([existing_df, new_df])
-
-        # Save
-        merged.write_parquet(existing_parquet)
-        print(f"✅ Merged store now has {len(merged)} total entries")
-
-        return merged
+        # Concatenate - ensure we keep all rows if no duplicates
+        if len(new_df) > 0:
+            merged = pl.concat([existing_df, new_df])
+            
+            # Save
+            merged.write_parquet(existing_parquet)
+            print(f"✅ Merged store now has {len(merged)} total entries")
+            
+            return merged
+        else:
+            print(f"✅ No new unique entries to merge")
+            return existing_df
 
     @abstractmethod
     def ingest(self, *args: Any, **kwargs: Any) -> pl.DataFrame:
