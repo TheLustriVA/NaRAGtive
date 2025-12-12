@@ -432,19 +432,19 @@ class LlamaServerHeuristicAnalyzer:
             return 0.0
         
         # Length factor (longer = more engaged)
-        length_score = min(len(text) / 2000.0, 1.0)
+        length_score = min(len(text) / 1000.0, 1.0)  # Adjusted threshold from 2000
         
         # Punctuation factor (questions and exclamations = more engaged)
         question_count = text.count("?")
         exclamation_count = text.count("!")
-        punct_score = min((question_count * 0.1 + exclamation_count * 0.05), 1.0)
+        punct_score = min((question_count * 0.2 + exclamation_count * 0.15), 1.0)  # Increased weights
         
         # Dialogue/narrative richness
-        dialogue_markers = text.count('\"') + text.count("'")
-        dialogue_score = min(dialogue_markers / 20.0, 1.0)
+        dialogue_markers = text.count('"') + text.count("'")
+        dialogue_score = min(dialogue_markers / 10.0, 1.0)  # Adjusted threshold from 20
         
-        # Combined score
-        engagement = (length_score * 0.4 + punct_score * 0.3 + dialogue_score * 0.3)
+        # Combined score with adjusted weights
+        engagement = (length_score * 0.3 + punct_score * 0.4 + dialogue_score * 0.3)  # Increased punct weight
         
         return min(engagement, 1.0)
     
@@ -475,22 +475,22 @@ class LlamaServerHeuristicAnalyzer:
         
         # Average word length
         avg_word_length = sum(len(w) for w in words) / len(words)
-        word_length_score = min(avg_word_length / 8.0, 1.0)
+        word_length_score = min(avg_word_length / 5.5, 1.0)  # Adjusted from 8.0 (lower threshold = lower scores)
         
         # Sentence complexity (average sentence length)
         sentences = [s.strip() for s in text.split(".") if s.strip()]
         if sentences:
             avg_sentence_length = sum(len(s.split()) for s in sentences) / len(sentences)
-            sentence_score = min(avg_sentence_length / 25.0, 1.0)
+            sentence_score = min(avg_sentence_length / 15.0, 1.0)  # Adjusted from 25 (lower threshold)
         else:
             sentence_score = 0.0
         
         # Vocabulary diversity
         unique_words = len(set(w.lower() for w in words))
-        diversity_score = min(unique_words / (len(words) * 0.6), 1.0) if words else 0.0
+        diversity_score = min(unique_words / (len(words) * 0.4), 1.0) if words else 0.0  # Adjusted from 0.6
         
-        # Combined complexity
-        complexity = (word_length_score * 0.4 + sentence_score * 0.3 + diversity_score * 0.3)
+        # Combined complexity with adjusted weights
+        complexity = (word_length_score * 0.35 + sentence_score * 0.35 + diversity_score * 0.3)  # Reduced weights
         
         return min(complexity, 1.0)
 
@@ -675,7 +675,7 @@ class LlamaServerIngester:
             try:
                 df = self.ingest_llama_server_export(
                     file_path,
-                    output_parquet=None,  # Skip individual saves
+                    output_parquet="./temp_llama_export.parquet",  # Use temp file
                 )
                 all_dfs.append(df)
             except Exception as e:
