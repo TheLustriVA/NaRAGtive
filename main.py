@@ -1,26 +1,257 @@
 #!/usr/bin/env python3
 """
-ThunderChild Scene Search CLI with BGE Reranking Support
-Query your RPG narrative using Polars vector search + optional BGE cross-encoder reranking
-Usage: python scene_search.py [command] [options]
+NaRAGtive: Narrative RAG with Semantic Search & Reranking
+
+Manage your fiction project's narrative using vector search and embedding-based retrieval.
+Features ingestion from multiple sources, semantic search with optional reranking, and analytics.
+
+Usage: python main.py [command] [options]
+
+Commands:
+  ingest      - Ingest narratives from Neptune exports or llama-server chats
+  search      - Search ingested narratives with optional BGE reranking
+  interactive - Interactive search mode with model caching
+  stats       - Show vector store statistics
+  list        - List scenes by metadata filters
+  export      - Export search results for LLM/reranking
+  migrate     - (Legacy) Migrate from ChromaDB to Polars
 """
 
 import argparse
 import sys
 import json
 from tkinter import EXCEPTION
+from pathlib import Path
+
 from naragtive.polars_vectorstore import PolarsVectorStore, SceneQueryFormatter
 from naragtive.bge_reranker_integration import PolarsVectorStoreWithReranker
+from naragtive.ingest_chat_transcripts import NeptuneIngester, ChatTranscriptIngester
+from naragtive.ingest_llama_server_chat import LlamaServerIngester
 
 
-def migrate_command(args):
-    """Migrate from ChromaDB to Polars"""
-    print("🚀 Starting ChromaDB → Polars migration...")
-    store = PolarsVectorStore(args.output)
-    store.save_from_chromadb(None)
-    store.stats()
-    print("✅ Migration complete!")
+def print_banner():
+    """Print welcome banner"""
+    print("\n" + "=" * 80)
+    print("NaRAGtive: Narrative RAG with Semantic Search & Reranking")
+    print("=" * 80 + "\n")
 
+
+# ============================================================================
+# INGESTION COMMANDS
+# ============================================================================
+
+def ingest_neptune_command(args):
+    """Ingest Neptune AI RPG narrative export"""
+    print(f"\n📚 Ingesting Neptune export: {args.export}")
+    
+    if not Path(args.export).exists():
+        print(f"❌ File not found: {args.export}")
+        sys.exit(1)
+    
+    ingester = NeptuneIngester()
+    try:
+        df = ingester.ingest(
+            args.export,
+            parquet_output=args.output,
+            append=args.append
+        )
+        print(f"\n✅ Successfully ingested {len(df)} scenes")
+        print(f"📁 Saved to: {args.output}")
+        
+        # Show sample stats
+        store = PolarsVectorStore(args.output)
+        store.load()
+        store.stats()
+        
+    except Exception as e:
+        print(f"❌ Error during ingestion: {e}")
+        sys.exit(1)
+
+
+def ingest_llama_command(args):
+    """Ingest llama-server chat export"""
+    print(f"\n💬 Ingesting llama-server export: {args.export}")
+    
+    if not Path(args.export).exists():
+        print(f"❌ File not found: {args.export}")
+        sys.exit(1)
+    
+    ingester = LlamaServerIngester()
+    try:
+        df = ingester.ingest_llama_server_export(
+            args.export,
+            output_parquet=args.output
+        )
+        print(f"\n✅ Successfully ingested {len(df)} scenes")
+        print(f"📁 Saved to: {args.output}")
+        
+        # Show sample stats
+        store = PolarsVectorStore(args.output)
+        store.load()
+        store.stats()
+        
+    except Exception as e:
+        print(f"❌ Error during ingestion: {e}")
+        sys.exit(1)
+
+
+def ingest_chat_command(args):
+    """Ingest generic chat transcripts (JSON or text)"""
+    print(f"\n💬 Ingesting chat transcript: {args.source}")
+    
+    if not Path(args.source).exists():
+        print(f"❌ File not found: {args.source}")
+        sys.exit(1)
+    
+    ingester = ChatTranscriptIngester()
+    try:
+        if args.type == "json":
+            df = ingester.ingest_json_messages(
+                args.source,
+                parquet_output=args.output
+            )
+        elif args.type == "txt":
+            df = ingester.ingest_txt_file(
+                args.source,
+                chunk_size=args.chunk_size,
+                parquet_output=args.output
+            )
+        
+        print(f"\n✅ Successfully ingested {len(df)} entries")
+        print(f"📁 Saved to: {args.output}")
+        
+    except Exception as e:
+        print(f"❌ Error during ingestion: {e}")
+        sys.exit(1)
+
+
+def ingest_help_command(args):
+    """Show detailed help for ingestion workflows"""
+    help_text = """
+╔════════════════════════════════════════════════════════════════════════════╗
+║                       INGESTION WORKFLOWS GUIDE                            ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+📖 THREE WAYS TO INGEST YOUR NARRATIVES:
+
+1️⃣  NEPTUNE AI RPG NARRATIVES
+   ─────────────────────────────────────────────────────────────────────────
+   Perfect for: Role-playing game transcripts from Neptune AI
+   
+   Steps:
+   a) Export your Neptune conversation (File → Export)
+   b) Run ingestion:
+      python main.py ingest-neptune -e your_export.txt -o scenes.parquet
+   
+   Options:
+   -e, --export FILE       Path to Neptune export file (required)
+   -o, --output FILE       Output parquet file (default: scenes.parquet)
+   --no-append             Create new store instead of merging
+   
+   Example:
+   python main.py ingest-neptune -e thunderchild_chapter3.txt -o scenes.parquet
+
+
+2️⃣  LLAMA-SERVER CHAT EXPORTS
+   ─────────────────────────────────────────────────────────────────────────
+   Perfect for: Chat histories from llama.cpp web interface
+   
+   Steps:
+   a) Export chat from llama-server (e.g., via /api/chat/export)
+   b) Run ingestion:
+      python main.py ingest-llama -e export.json -o chats.parquet
+   
+   Options:
+   -e, --export FILE       Path to llama-server export JSON (required)
+   -o, --output FILE       Output parquet file (default: llama_chats.parquet)
+   
+   Example:
+   python main.py ingest-llama -e my_chat_2025.json -o character_scenes.parquet
+
+
+3️⃣  GENERIC CHAT TRANSCRIPTS
+   ─────────────────────────────────────────────────────────────────────────
+   Perfect for: Discord exports, Slack logs, custom JSON, or plain text
+   
+   For JSON format:
+   python main.py ingest-chat -s export.json --type json -o chat_store.parquet
+   
+   For plain text (auto-chunked):
+   python main.py ingest-chat -s transcript.txt --type txt -o chat_store.parquet
+   
+   Options:
+   -s, --source FILE       Source file (required)
+   --type {json,txt}       File type (default: json)
+   -o, --output FILE       Output parquet file (default: chat_transcripts.parquet)
+   --chunk-size INT        Text chunk size in characters (default: 500, text only)
+   
+   JSON Format Expected:
+   [
+     {"timestamp": "2025-12-05T12:00:00", "user": "Alice", 
+      "message": "Hello", "channel": "general"},
+     ...
+   ]
+
+
+📊 AFTER INGESTION: SEARCH YOUR DATA
+   ─────────────────────────────────────────────────────────────────────────
+   
+   Basic search:
+   python main.py search "your query" -s scenes.parquet
+   
+   With BGE reranking (better accuracy):
+   python main.py search "your query" -s scenes.parquet --rerank
+   
+   Interactive mode (model cached):
+   python main.py interactive -s scenes.parquet --rerank
+   
+   View statistics:
+   python main.py stats -s scenes.parquet
+   
+   List by filter:
+   python main.py list -s scenes.parquet --location "bridge"
+   
+   Export for LLM:
+   python main.py export "your query" -f llm-context -o context.md
+
+
+💾 MERGING MULTIPLE SOURCES
+   ─────────────────────────────────────────────────────────────────────────
+   By default, ingestions APPEND to existing stores (merge with deduplication).
+   
+   To start fresh:
+   python main.py ingest-neptune -e export.txt -o scenes.parquet --no-append
+   
+   To add more later:
+   python main.py ingest-neptune -e export2.txt -o scenes.parquet  # appends
+
+
+🔍 TROUBLESHOOTING
+   ─────────────────────────────────────────────────────────────────────────
+   
+   Neptune export format wrong?
+   → Make sure you export from Neptune, not copy-paste. File → Export.
+   
+   llama-server export empty?
+   → Check that /api/chat/export endpoint returns valid JSON.
+   
+   Ingestion slow?
+   → Large files take time for embedding. Use --chunk-size to reduce.
+     First ingestion downloads embedding model (~200MB).
+   
+   Merge errors?
+   → Use --no-append to create fresh store if having issues.
+   → Or delete existing .parquet file and reimport.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+    """
+    print(help_text)
+
+
+# ============================================================================
+# SEARCH COMMANDS
+# ============================================================================
 
 def print_reranked_results(results: dict, query: str) -> str:
     """Format reranked results for display"""
@@ -73,6 +304,10 @@ def print_reranked_results(results: dict, query: str) -> str:
 
 def query_command(args):
     """Search for scenes with optional reranking"""
+    if not Path(args.store).exists():
+        print(f"❌ Vector store not found: {args.store}")
+        print("   First ingest narratives using: python main.py ingest-help")
+        sys.exit(1)
     
     if args.rerank:
         store = PolarsVectorStoreWithReranker(args.store)
@@ -88,7 +323,7 @@ def query_command(args):
         store = PolarsVectorStore(args.store)
         
         if not store.load():
-            print("❌ Vector store not found. Run 'migrate' first.")
+            print("❌ Vector store not found. Ingest narratives first.")
             sys.exit(1)
         
         formatter = SceneQueryFormatter(store)
@@ -99,6 +334,10 @@ def query_command(args):
 def list_command(args):
     """List scenes by metadata criteria"""
     import polars as pl
+    
+    if not Path(args.store).exists():
+        print(f"❌ Vector store not found: {args.store}")
+        sys.exit(1)
     
     store = PolarsVectorStore(args.store)
     
@@ -131,6 +370,10 @@ def list_command(args):
 
 def stats_command(args):
     """Show vector store statistics"""
+    if not Path(args.store).exists():
+        print(f"❌ Vector store not found: {args.store}")
+        sys.exit(1)
+    
     store = PolarsVectorStore(args.store)
     store.load()
     store.stats()
@@ -155,6 +398,9 @@ def stats_command(args):
 
 def interactive_command(args):
     """Interactive search mode with optional reranking"""
+    if not Path(args.store).exists():
+        print(f"❌ Vector store not found: {args.store}")
+        sys.exit(1)
     
     if args.rerank:
         store = PolarsVectorStoreWithReranker(args.store)
@@ -168,7 +414,8 @@ def interactive_command(args):
         reranker_status = "disabled"
     
     print("\n" + "=" * 80)
-    print("ThunderChild Scene Search - Interactive Mode")
+    print("Interactive Search Mode")
+    print(f"Store: {args.store}")
     print(f"Reranking: {reranker_status}")
     print("=" * 80)
     print("Commands:")
@@ -210,10 +457,14 @@ def export_command(args):
     """Export search results for reranking/LLM"""
     from naragtive.reranker_export import RerankerExporter
     
+    if not Path(args.store).exists():
+        print(f"❌ Vector store not found: {args.store}")
+        sys.exit(1)
+    
     store = PolarsVectorStore(args.store)
     
     if not store.load():
-        print("❌ Vector store not found. Run 'migrate' first.")
+        print("❌ Vector store not found.")
         sys.exit(1)
     
     results = store.query(args.query, n_results=args.limit)
@@ -244,48 +495,119 @@ def export_command(args):
         print(output)
 
 
+def migrate_command(args):
+    """(Legacy) Migrate from ChromaDB to Polars"""
+    print("🚀 Starting ChromaDB → Polars migration...")
+    store = PolarsVectorStore(args.output)
+    store.save_from_chromadb(None)
+    store.stats()
+    print("✅ Migration complete!")
+
+
 def main():
     parser = argparse.ArgumentParser(
-        description="ThunderChild Scene Search - Query your RPG narrative",
+        description="NaRAGtive: Narrative RAG with Semantic Search & Reranking",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-Examples:
-  # First time: migrate from ChromaDB
-  python scene_search.py migrate
+QUICK START:
 
-  # Search for scenes (embedding only)
-  python scene_search.py search "Admiral command"
+  1. Ingest narratives:
+     python main.py ingest-neptune -e export.txt
+     python main.py ingest-llama -e chat_export.json
   
-  # Search with BGE reranking (better accuracy)
-  python scene_search.py search "Admiral command" --rerank
-  python scene_search.py search "tactical decision" --rerank --limit 20
-
-  # Interactive mode (keeps model in memory)
-  python scene_search.py interactive
-  python scene_search.py interactive --rerank
-
-  # List scenes by criteria
-  python scene_search.py list --character "Kieran"
-  python scene_search.py list --location "bridge"
-
-  # Show statistics
-  python scene_search.py stats --show-reranker
-
-  # Export for external rerankers
-  python scene_search.py export "Admiral command" -f bge -o results.json
+  2. Search:
+     python main.py search "your query"
+     python main.py search "your query" --rerank  # better accuracy
+  
+  3. Interactive mode:
+     python main.py interactive --rerank
+  
+  For detailed help:
+     python main.py ingest-help
+     python main.py search --help
         """
     )
     
     subparsers = parser.add_subparsers(dest="command", help="Command to run")
     
-    # Migrate command
-    migrate_parser = subparsers.add_parser("migrate", help="Migrate from ChromaDB to Polars")
-    migrate_parser.add_argument(
-        "-o", "--output",
-        default="./thunderchild_scenes.parquet",
-        help="Output parquet file (default: ./thunderchild_scenes.parquet)"
+    # ========== INGESTION COMMANDS ==========
+    
+    # Ingest help
+    help_parser = subparsers.add_parser(
+        "ingest-help",
+        help="Show detailed ingestion workflows and examples"
     )
-    migrate_parser.set_defaults(func=migrate_command)
+    help_parser.set_defaults(func=ingest_help_command)
+    
+    # Ingest Neptune
+    neptune_parser = subparsers.add_parser(
+        "ingest-neptune",
+        help="Ingest Neptune AI RPG narrative export"
+    )
+    neptune_parser.add_argument(
+        "-e", "--export",
+        required=True,
+        help="Path to Neptune export file"
+    )
+    neptune_parser.add_argument(
+        "-o", "--output",
+        default="./scenes.parquet",
+        help="Output parquet file (default: ./scenes.parquet)"
+    )
+    neptune_parser.add_argument(
+        "--no-append",
+        action="store_true",
+        help="Create new store instead of merging with existing"
+    )
+    neptune_parser.set_defaults(func=ingest_neptune_command, append=True)
+    
+    # Ingest llama-server
+    llama_parser = subparsers.add_parser(
+        "ingest-llama",
+        help="Ingest llama-server chat export"
+    )
+    llama_parser.add_argument(
+        "-e", "--export",
+        required=True,
+        help="Path to llama-server export JSON file"
+    )
+    llama_parser.add_argument(
+        "-o", "--output",
+        default="./llama_chats.parquet",
+        help="Output parquet file (default: ./llama_chats.parquet)"
+    )
+    llama_parser.set_defaults(func=ingest_llama_command)
+    
+    # Ingest generic chat
+    chat_parser = subparsers.add_parser(
+        "ingest-chat",
+        help="Ingest generic chat transcripts (JSON or text)"
+    )
+    chat_parser.add_argument(
+        "-s", "--source",
+        required=True,
+        help="Path to source file (JSON or text)"
+    )
+    chat_parser.add_argument(
+        "--type",
+        choices=["json", "txt"],
+        default="json",
+        help="File type (default: json)"
+    )
+    chat_parser.add_argument(
+        "-o", "--output",
+        default="./chat_transcripts.parquet",
+        help="Output parquet file (default: ./chat_transcripts.parquet)"
+    )
+    chat_parser.add_argument(
+        "--chunk-size",
+        type=int,
+        default=500,
+        help="Text chunk size in characters for text files (default: 500)"
+    )
+    chat_parser.set_defaults(func=ingest_chat_command)
+    
+    # ========== SEARCH COMMANDS ==========
     
     # Search command
     search_parser = subparsers.add_parser("search", help="Search for scenes")
@@ -298,7 +620,7 @@ Examples:
     )
     search_parser.add_argument(
         "-s", "--store",
-        default="./thunderchild_scenes.parquet",
+        default="./scenes.parquet",
         help="Path to vector store"
     )
     search_parser.add_argument(
@@ -330,7 +652,7 @@ Examples:
     )
     list_parser.add_argument(
         "-s", "--store",
-        default="./thunderchild_scenes.parquet",
+        default="./scenes.parquet",
         help="Path to vector store"
     )
     list_parser.set_defaults(func=list_command)
@@ -339,7 +661,7 @@ Examples:
     stats_parser = subparsers.add_parser("stats", help="Show store statistics")
     stats_parser.add_argument(
         "-s", "--store",
-        default="./thunderchild_scenes.parquet",
+        default="./scenes.parquet",
         help="Path to vector store"
     )
     stats_parser.add_argument(
@@ -350,7 +672,10 @@ Examples:
     stats_parser.set_defaults(func=stats_command)
     
     # Interactive command
-    interactive_parser = subparsers.add_parser("interactive", help="Interactive search mode")
+    interactive_parser = subparsers.add_parser(
+        "interactive",
+        help="Interactive search mode"
+    )
     interactive_parser.add_argument(
         "-l", "--limit",
         type=int,
@@ -359,7 +684,7 @@ Examples:
     )
     interactive_parser.add_argument(
         "-s", "--store",
-        default="./thunderchild_scenes.parquet",
+        default="./scenes.parquet",
         help="Path to vector store"
     )
     interactive_parser.add_argument(
@@ -376,7 +701,10 @@ Examples:
     interactive_parser.set_defaults(func=interactive_command)
     
     # Export command
-    export_parser = subparsers.add_parser("export", help="Export search results for reranking/LLM")
+    export_parser = subparsers.add_parser(
+        "export",
+        help="Export search results for reranking/LLM"
+    )
     export_parser.add_argument("query", help="Search query")
     export_parser.add_argument(
         "-f", "--format",
@@ -396,15 +724,39 @@ Examples:
     )
     export_parser.add_argument(
         "-s", "--store",
-        default="./thunderchild_scenes.parquet",
+        default="./scenes.parquet",
         help="Path to vector store"
     )
     export_parser.set_defaults(func=export_command)
     
+    # Migrate command (legacy)
+    migrate_parser = subparsers.add_parser(
+        "migrate",
+        help="(Legacy) Migrate from ChromaDB to Polars"
+    )
+    migrate_parser.add_argument(
+        "-o", "--output",
+        default="./thunderchild_scenes.parquet",
+        help="Output parquet file"
+    )
+    migrate_parser.set_defaults(func=migrate_command)
+    
     args = parser.parse_args()
     
     if not args.command:
+        print_banner()
         parser.print_help()
+        print("\n" + "=" * 80)
+        print("QUICK START:")
+        print("=" * 80)
+        print("\n1. Show ingestion help:")
+        print("   python main.py ingest-help\n")
+        print("2. Ingest your narratives:")
+        print("   python main.py ingest-neptune -e your_export.txt")
+        print("   python main.py ingest-llama -e chat_export.json\n")
+        print("3. Search:")
+        print("   python main.py search \"your query\"")
+        print("   python main.py search \"your query\" --rerank\n")
         sys.exit(0)
     
     args.func(args)
