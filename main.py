@@ -33,6 +33,7 @@ from naragtive.polars_vectorstore import PolarsVectorStore, SceneQueryFormatter
 from naragtive.bge_reranker_integration import PolarsVectorStoreWithReranker
 from naragtive.ingest_chat_transcripts import NeptuneIngester, ChatTranscriptIngester
 from naragtive.ingest_llama_server_chat import LlamaServerIngester
+from naragtive.reranker_export import RerankerExporter
 from naragtive.store_registry import VectorStoreRegistry
 
 
@@ -656,7 +657,6 @@ def interactive_command(args):
 
 def export_command(args):
     """Export search results for reranking/LLM"""
-    from naragtive.reranker_export import RerankerExporter
     
     try:
         store_path = resolve_store_path(args)

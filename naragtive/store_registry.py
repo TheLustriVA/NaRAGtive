@@ -36,7 +36,7 @@ Usage:
 
 import json
 from dataclasses import dataclass, asdict
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 import polars as pl
@@ -172,7 +172,7 @@ class VectorStoreRegistry:
         metadata = StoreMetadata(
             name=name,
             path=path,
-            created_at=datetime.utcnow().isoformat(),
+            created_at=datetime.now(timezone.utc).isoformat(),
             source_type=source_type,
             record_count=record_count,
             description=description
