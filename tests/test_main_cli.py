@@ -277,7 +277,7 @@ class TestExportCommand:
     """Test export command."""
     
     @patch('main.PolarsVectorStore')
-    # @patch('main.RerankerExporter')
+    @patch('main.RerankerExporter')
     def test_export_llm_context(self, mock_exporter_class: Mock, mock_store_class: Mock, tmp_path: Path) -> None:
         """Test exporting results as LLM context."""
         # Setup mocks
