@@ -1,6 +1,6 @@
 # NaRAGtive: Narrative RAG with Semantic Search & Reranking
 
-A Polars-based retrieval-augmented generation system for fiction projects. Ingest narratives from multiple sources (Neptune AI, llama-server, generic chat), perform semantic search with optional BGE reranking, and extract narrative insights.
+A Polars-based retrieval-augmented generation system for fiction projects. Ingest narratives from multiple sources (Neptune AI, llama-server, generic chat), perform semantic search with optional BGE reranking, and extract narrative insights. **Now with multi-store support for managing multiple projects!**
 
 ## Quick Start
 
@@ -24,6 +24,7 @@ Options:
 - `-e, --export FILE`: Path to Neptune export file (required)
 - `-o, --output FILE`: Output parquet file (default: `./scenes.parquet`)
 - `--no-append`: Create new store instead of merging
+- `--register NAME`: Register as named store after ingestion
 
 **How to export from Neptune:**
 1. Open your conversation in Neptune
@@ -40,6 +41,7 @@ python main.py ingest-llama -e chat_export.json -o chats.parquet
 Options:
 - `-e, --export FILE`: Path to llama-server export JSON (required)
 - `-o, --output FILE`: Output parquet file (default: `./llama_chats.parquet`)
+- `--register NAME`: Register as named store after ingestion
 
 **How to export from llama-server:**
 1. Use the web interface chat export feature, or
@@ -61,6 +63,7 @@ Options:
 - `--type {json,txt}`: File type (default: `json`)
 - `-o, --output FILE`: Output parquet file
 - `--chunk-size INT`: Text chunk size (default: 500, text mode only)
+- `--register NAME`: Register as named store after ingestion
 
 **Expected JSON format:**
 ```json
@@ -86,6 +89,7 @@ Options:
 - `query`: Search query (positional, required)
 - `-l, --limit INT`: Number of results (default: 10)
 - `-s, --store FILE`: Path to vector store (default: `./scenes.parquet`)
+- `--store-name NAME`: Use named store from registry
 
 #### With BGE Reranking (Better Accuracy)
 
@@ -131,6 +135,7 @@ Options:
 - `-l, --location LOC`: Filter by location
 - `-d, --date DATE`: Filter by ISO date
 - `-s, --store FILE`: Path to vector store
+- `--store-name NAME`: Use named store from registry
 
 ### 6. Export for LLM/Reranker
 
@@ -147,6 +152,114 @@ Formats:
 
 ---
 
+## Multi-Store Management
+
+**New Feature:** Named stores with persistent registry, allowing seamless switching between multiple projects.
+
+### Register Stores During Ingestion
+
+```bash
+# Register during Neptune ingestion
+python main.py ingest-neptune -e campaign1.txt --register "campaign-1"
+
+# Register during llama-server ingestion
+python main.py ingest-llama -e perplexity_chats.json --register "perplexity-research"
+
+# Register generic chat
+python main.py ingest-chat -s dataset.json --register "text-dataset"
+```
+
+The `--register` flag automatically:
+- Saves metadata (name, path, source type, record count)
+- Sets as default if it's the first store
+- Creates `~/.naragtive/stores/` registry directory
+
+### List Registered Stores
+
+```bash
+python main.py list-stores
+```
+
+Output:
+```
+==========================================================================================
+REGISTERED VECTOR STORES
+==========================================================================================
+ ⭐ campaign-1           neptune        500        2025-12-13T04:00... Campaign 1 scenes
+    perplexity-research llama-server  750        2025-12-13T04:05... Perplexity chats
+    text-dataset        chat           1200       2025-12-13T04:10... Text dataset
+==========================================================================================
+
+Default: campaign-1
+Use 'python main.py set-default <name>' to change default
+```
+
+### Search by Store Name
+
+```bash
+# Explicit store name
+python main.py search "query" --store-name "campaign-1" --rerank
+
+# Use default store
+python main.py search "query"  # Uses default if no -s specified
+
+# Interactive with named store
+python main.py interactive --store-name "perplexity-research" --rerank
+```
+
+### Set/Change Default Store
+
+```bash
+# Set default
+python main.py set-default "perplexity-research"
+
+# Now all commands use this store by default
+python main.py search "query"           # Uses perplexity-research
+python main.py stats                   # Shows perplexity-research stats
+```
+
+### Manual Store Registration
+
+```bash
+# Register an existing parquet file
+python main.py create-store "my-store" /path/to/file.parquet neptune -d "My description"
+```
+
+Options:
+- `name`: Store name (required)
+- `path`: Path to parquet file (required)
+- `source_type`: Source origin (neptune, llama-server, chat, etc.) (required)
+- `-d, --description`: Optional description
+
+### Before/After Comparison
+
+**Before (without registry):**
+```bash
+# Must remember paths
+python main.py ingest-neptune -e export.txt -o /home/user/stores/campaign1.parquet
+python main.py search "query" -s /home/user/stores/campaign1.parquet --rerank
+python main.py search "other" -s /home/user/stores/campaign1.parquet
+python main.py stats -s /home/user/stores/campaign1.parquet
+```
+
+**After (with registry):**
+```bash
+# Register once
+python main.py ingest-neptune -e export.txt --register "campaign-1"
+
+# Use by name
+python main.py search "query" --store-name "campaign-1" --rerank
+python main.py search "other" --store-name "campaign-1"
+python main.py stats --store-name "campaign-1"
+
+# Or use default
+python main.py set-default "campaign-1"
+python main.py search "query" --rerank
+python main.py stats
+```
+
+---
+
 ## Complete Workflow Examples
 
 ### Example 1: Neptune Narrative Analysis
@@ -155,33 +268,36 @@ Formats:
 # 1. Export conversation from Neptune
 # File → Export → save_as thunderchild_chapter3.txt
 
-# 2. Ingest scenes
-python main.py ingest-neptune -e thunderchild_chapter3.txt -o thunderchild.parquet
+# 2. Ingest and register
+python main.py ingest-neptune -e thunderchild_chapter3.txt --register "campaign-1"
 
 # 3. Search for specific scenes
-python main.py search "Admiral decision making" -s thunderchild.parquet --rerank
+python main.py search "Admiral decision making" --store-name "campaign-1" --rerank
 
 # 4. View all scenes on the bridge
-python main.py list -s thunderchild.parquet --location bridge
+python main.py list --store-name "campaign-1" --location bridge
 
 # 5. Export for LLM context
-python main.py export "command conflict" -s thunderchild.parquet -f llm-context -o context.md
+python main.py export "command conflict" --store-name "campaign-1" -f llm-context -o context.md
 ```
 
 ### Example 2: Multi-Source Narrative
 
 ```bash
 # 1. Ingest Neptune conversation
-python main.py ingest-neptune -e neptune_ch1.txt -o combined.parquet
+python main.py ingest-neptune -e neptune_ch1.txt --register "campaign-1"
 
-# 2. Add llama-server chat to same store
-python main.py ingest-llama -e llama_ch2.json -o combined.parquet
+# 2. Add llama-server chat to registry (different store)
+python main.py ingest-llama -e llama_ch2.json --register "perplexity-research"
 
-# 3. Search across both sources
-python main.py search "character reaction" -s combined.parquet --rerank
+# 3. Search campaign
+python main.py search "character reaction" --store-name "campaign-1" --rerank
 
-# 4. View statistics (shows both sources merged)
-python main.py stats -s combined.parquet --show-reranker
+# 4. Search perplexity
+python main.py search "AI ethics" --store-name "perplexity-research" --rerank
+
+# 5. View all stores
+python main.py list-stores
 ```
 
 ### Example 3: Archive Chat History
@@ -191,10 +307,10 @@ python main.py stats -s combined.parquet --show-reranker
 # (Use Discord's export feature or Slack API)
 
 # 2. Ingest generic chat
-python main.py ingest-chat -s discord_archive.json -o discord.parquet
+python main.py ingest-chat -s discord_archive.json --register "discord"
 
 # 3. Interactive search
-python main.py interactive -s discord.parquet
+python main.py interactive --store-name "discord"
 # Then enter queries:
 # 🔍 Query: lore discussion
 # 🔍 Query: character relationship
@@ -212,6 +328,7 @@ python main.py interactive -s discord.parquet
 3. **Analyzer**: Extract metadata (themes, tone, characters, locations)
 4. **Embedder**: Generate embeddings using all-MiniLM-L6-v2 (384-dim)
 5. **Storage**: Save to Polars parquet with metadata
+6. **Registry**: Track store metadata in `~/.naragtive/stores/registry.json`
 
 ### Search Pipeline
 
@@ -231,48 +348,23 @@ python main.py interactive -s discord.parquet
 
 ---
 
-## Merging Narratives
+## Store Registry
 
-By default, ingestions **append** to existing stores (with duplicate detection):
+Metadata stored in `~/.naragtive/stores/`:
 
-```bash
-# First ingestion creates store
-python main.py ingest-neptune -e export1.txt -o scenes.parquet
-
-# Second ingestion merges
-python main.py ingest-neptune -e export2.txt -o scenes.parquet
-# (automatically deduplicates by scene ID)
+```
+~/.naragtive/stores/
+├── registry.json          # Store metadata (name, path, type, count, etc.)
+├── default.txt            # Current default store name
+├── campaign-1.parquet     # Actual vector store file
+├── perplexity-research.parquet
+└── text-dataset.parquet
 ```
 
-To start fresh:
-
+**Backward Compatibility:** Old `-s/--store /path` flag still works:
 ```bash
-python main.py ingest-neptune -e export.txt -o scenes.parquet --no-append
-# or delete the .parquet file first
+python main.py search "query" -s /explicit/path/file.parquet  # Still works!
 ```
-
----
-
-## Metadata Extraction
-
-After ingestion, each scene includes:
-
-### From Neptune/llama-server
-- `scene_id`: Unique identifier
-- `date_iso`: Scene date
-- `pov_character`: Point of view
-- `location`: Where the scene happens
-- `characters_present`: List of characters
-- `tone`: "tense", "emotional", "neutral"
-- `emotional_intensity`: 0.0–1.0 score
-- `action_level`: 0.0–1.0 score
-
-### From Generic Chat
-- `timestamp`: Message time
-- `user`: Speaker name
-- `channel`: Discord channel / Slack workspace
-- `word_count`: Message length
-- `character_count`: Text length
 
 ---
 
@@ -283,6 +375,7 @@ After ingestion, each scene includes:
 - **Embedding generation**: ~300MB (first run, downloads model)
 - **Vector store**: ~50MB per 1000 scenes
 - **BGE reranker**: ~1.3GB VRAM (optional, only when using `--rerank`)
+- **Registry**: <1MB (metadata only)
 
 ### Speed
 
@@ -295,7 +388,8 @@ After ingestion, each scene includes:
 
 - **Vector store**: Tested up to 100k scenes
 - **Search latency**: Sub-second for most stores
-- **Memory**: Linear with scene count
+- **Multiple stores**: No performance penalty (independent parquet files)
+- **Registry**: O(n) lookup where n = number of stores (typically <100)
 
 ---
 
@@ -317,24 +411,23 @@ ValueError: TURN_RE regex didn't match
 
 **Solution:** Make sure you exported from Neptune (File → Export), not copy-pasted. Export creates proper `***TIMESTAMP - SPEAKER:***` headers.
 
+### Store not found in registry
+
+```
+KeyError: Store 'campaign-1' not found in registry
+```
+
+**Solution:** List available stores: `python main.py list-stores`
+
+Or register: `python main.py ingest-neptune -e export.txt --register "campaign-1"`
+
 ### Ingestion slow
 
 **First run?** Model download (~200MB) happens automatically. Subsequent runs are faster.
 
 **Large file?** Try reducing chunk size:
 ```bash
-python main.py ingest-chat -s large.txt --chunk-size 250 -o output.parquet
-```
-
-### Merge errors
-
-```
-Duplicate IDs detected
-```
-
-**Solution:** Start fresh with `--no-append` or delete existing `.parquet`:
-```bash
-python main.py ingest-neptune -e export.txt -o scenes.parquet --no-append
+python main.py ingest-chat -s large.txt --chunk-size 250 --register "dataset"
 ```
 
 ### Vector store file corrupted
@@ -342,7 +435,15 @@ python main.py ingest-neptune -e export.txt -o scenes.parquet --no-append
 **Solution:** Delete the `.parquet` file and reingest:
 ```bash
 rm scenes.parquet
-python main.py ingest-neptune -e export.txt -o scenes.parquet
+python main.py ingest-neptune -e export.txt
+```
+
+### Registry corrupted
+
+**Solution:** Delete registry and reingest:
+```bash
+rm -rf ~/.naragtive/stores/
+python main.py ingest-neptune -e export.txt --register "campaign-1"
 ```
 
 ---
@@ -366,7 +467,10 @@ Run the test suite:
 # All tests
 pytest tests/
 
-# Specific ingestion tests
+# Registry tests
+pytest tests/test_store_registry.py -v
+
+# Ingestion tests
 pytest tests/test_ingest_chat_transcripts.py -v
 pytest tests/test_ingest_llama_server_chat.py -v
 
@@ -385,22 +489,36 @@ See [`TESTING.md`](TESTING.md) for detailed test documentation.
 1. Read this README
 2. Run `python main.py ingest-help` for guided examples
 3. Try Example 1 (Neptune workflow) above
+4. Run `python main.py list-stores` to see registered stores
 
 ### For Developers
 
 1. Read ingester docstrings: `naragtive/ingest_chat_transcripts.py`
-2. Study test cases: `tests/test_ingest_*.py`
-3. Check vector store: `naragtive/polars_vectorstore.py`
+2. Study registry code: `naragtive/store_registry.py`
+3. Review test cases: `tests/test_store_registry.py`
+4. Check vector store: `naragtive/polars_vectorstore.py`
 
 ### For Advanced Usage
 
 1. Review `docs/LLAMA_SERVER_INGESTION.md` for llama-server specifics
 2. Explore `naragtive/bge_reranker_integration.py` for reranking details
 3. See `naragtive/reranker_export.py` for export formats
+4. Check `docs/multi-store-architecture.md` for design details
 
 ---
 
 ## Recent Updates
+
+### v1.2.0 - Multi-Store Support
+
+- ✅ New VectorStoreRegistry for managing multiple stores
+- ✅ Named store support with `--register` flag on ingestion
+- ✅ `list-stores`, `create-store`, `set-default` commands
+- ✅ `--store-name` argument for all search commands
+- ✅ Default store tracking in `~/.naragtive/stores/default.txt`
+- ✅ Persistent registry in `~/.naragtive/stores/registry.json`
+- ✅ 100% backward compatible with old `-s/--store` paths
+- ✅ Full test coverage for registry module
 
 ### v1.1.0 - Ingestion CLI Workflow
 
@@ -410,7 +528,6 @@ See [`TESTING.md`](TESTING.md) for detailed test documentation.
 - ✅ New `ingest-help` command with comprehensive guides
 - ✅ Improved error handling and user feedback
 - ✅ Full test coverage for ingestion pipeline
-- ✅ Enhanced README with workflows and examples
 
 ### v1.0.0 - Initial Release
 

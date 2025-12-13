@@ -209,3 +209,4 @@ __marimo__/
 inputs/Neptune_Pre_Wong1.txt
 
 *.parquet
+*.txt
