@@ -4,17 +4,23 @@ NaRAGtive: Narrative RAG with Semantic Search & Reranking
 
 Manage your fiction project's narrative using vector search and embedding-based retrieval.
 Features ingestion from multiple sources, semantic search with optional reranking, and analytics.
+Supports multiple named vector stores with registry system.
 
 Usage: python main.py [command] [options]
 
 Commands:
-  ingest      - Ingest narratives from Neptune exports or llama-server chats
-  search      - Search ingested narratives with optional BGE reranking
-  interactive - Interactive search mode with model caching
-  stats       - Show vector store statistics
-  list        - List scenes by metadata filters
-  export      - Export search results for LLM/reranking
-  migrate     - (Legacy) Migrate from ChromaDB to Polars
+  ingest-neptune  - Ingest Neptune AI RPG narrative exports
+  ingest-llama    - Ingest llama-server chat exports
+  ingest-chat     - Ingest generic chat transcripts (JSON/text)
+  search          - Search ingested narratives with optional BGE reranking
+  interactive     - Interactive search mode with model caching
+  stats           - Show vector store statistics
+  list            - List scenes by metadata filters
+  export          - Export search results for LLM/reranking
+  list-stores     - List all registered stores
+  create-store    - Register a new named store
+  set-default     - Set default store for commands
+  migrate         - (Legacy) Migrate from ChromaDB to Polars
 """
 
 import argparse
@@ -27,6 +33,7 @@ from naragtive.polars_vectorstore import PolarsVectorStore, SceneQueryFormatter
 from naragtive.bge_reranker_integration import PolarsVectorStoreWithReranker
 from naragtive.ingest_chat_transcripts import NeptuneIngester, ChatTranscriptIngester
 from naragtive.ingest_llama_server_chat import LlamaServerIngester
+from naragtive.store_registry import VectorStoreRegistry
 
 
 def print_banner():
@@ -34,6 +41,120 @@ def print_banner():
     print("\n" + "=" * 80)
     print("NaRAGtive: Narrative RAG with Semantic Search & Reranking")
     print("=" * 80 + "\n")
+
+
+def resolve_store_path(args) -> str:
+    """Resolve --store or --store-name to actual file path.
+    
+    Resolution order:
+    1. If --store is provided and exists as file → use it (backward compat)
+    2. If --store-name is provided → look up in registry
+    3. If default store exists in registry → use it
+    4. Raise error with helpful message
+    
+    Args:
+        args: Parsed arguments from argparse
+        
+    Returns:
+        Path to vector store parquet file
+        
+    Raises:
+        FileNotFoundError: If store not found
+    """
+    # Check explicit path first (backward compatibility)
+    if hasattr(args, 'store') and args.store != "./scenes.parquet":
+        if Path(args.store).exists():
+            return args.store
+    
+    # Try registry
+    try:
+        registry = VectorStoreRegistry()
+    except Exception:
+        registry = None
+    
+    # Check store name from registry
+    if hasattr(args, 'store_name') and args.store_name:
+        if registry:
+            try:
+                store = registry.get(args.store_name)
+                return store.parquet_path
+            except KeyError as e:
+                raise FileNotFoundError(f"Store '{args.store_name}' not found in registry.\n{str(e)}")
+        else:
+            raise FileNotFoundError(f"Registry not available for store '{args.store_name}'")
+    
+    # Fall back to default store
+    if registry:
+        default = registry.get_default()
+        if default:
+            try:
+                store = registry.get(default)
+                return store.parquet_path
+            except KeyError:
+                pass
+    
+    # No store found
+    raise FileNotFoundError(
+        "No vector store specified or found.\n"
+        "Options:\n"
+        "  1. Specify path: python main.py search 'query' -s /path/to/file.parquet\n"
+        "  2. Use store name: python main.py search 'query' --store-name 'my-store'\n"
+        "  3. Ingest data: python main.py ingest-neptune -e export.txt --register 'name'\n"
+        "  4. List stores: python main.py list-stores"
+    )
+
+
+# ============================================================================
+# REGISTRY COMMANDS
+# ============================================================================
+
+def list_stores_command(args):
+    """List all registered vector stores"""
+    registry = VectorStoreRegistry()
+    registry.print_table()
+
+
+def create_store_command(args):
+    """Register a new named store"""
+    registry = VectorStoreRegistry()
+    
+    try:
+        metadata = registry.register(
+            name=args.name,
+            path=Path(args.path),
+            source_type=args.source_type,
+            description=args.description
+        )
+        
+        print(f"\n✅ Registered store: {metadata.name}")
+        print(f"   Path: {metadata.path}")
+        print(f"   Type: {metadata.source_type}")
+        print(f"   Records: {metadata.record_count}")
+        
+        # Set as default if first store
+        if len(registry.list_stores()) == 1:
+            registry.set_default(metadata.name)
+            print(f"   Set as default store")
+        
+        print()
+        registry.print_table()
+        
+    except (ValueError, FileNotFoundError) as e:
+        print(f"❌ Error: {e}")
+        sys.exit(1)
+
+
+def set_default_command(args):
+    """Set default store"""
+    registry = VectorStoreRegistry()
+    
+    try:
+        registry.set_default(args.name)
+        print(f"\n✅ Set default store to: {args.name}\n")
+        registry.print_table()
+    except KeyError as e:
+        print(f"❌ Error: {e}")
+        sys.exit(1)
 
 
 # ============================================================================
@@ -63,6 +184,27 @@ def ingest_neptune_command(args):
         store.load()
         store.stats()
         
+        # Register if requested
+        if hasattr(args, 'register') and args.register:
+            registry = VectorStoreRegistry()
+            try:
+                metadata = registry.register(
+                    name=args.register,
+                    path=Path(args.output),
+                    source_type="neptune",
+                    description=f"Neptune narrative from {Path(args.export).name}",
+                    record_count=len(df)
+                )
+                print(f"\n📌 Registered as: {metadata.name}")
+                
+                # Set as default if first
+                if len(registry.list_stores()) == 1:
+                    registry.set_default(metadata.name)
+                    print(f"   Set as default store")
+                    
+            except ValueError as e:
+                print(f"⚠️  Warning: Could not register: {e}")
+        
     except Exception as e:
         print(f"❌ Error during ingestion: {e}")
         sys.exit(1)
@@ -89,6 +231,27 @@ def ingest_llama_command(args):
         store = PolarsVectorStore(args.output)
         store.load()
         store.stats()
+        
+        # Register if requested
+        if hasattr(args, 'register') and args.register:
+            registry = VectorStoreRegistry()
+            try:
+                metadata = registry.register(
+                    name=args.register,
+                    path=Path(args.output),
+                    source_type="llama-server",
+                    description=f"Llama-server chats from {Path(args.export).name}",
+                    record_count=len(df)
+                )
+                print(f"\n📌 Registered as: {metadata.name}")
+                
+                # Set as default if first
+                if len(registry.list_stores()) == 1:
+                    registry.set_default(metadata.name)
+                    print(f"   Set as default store")
+                    
+            except ValueError as e:
+                print(f"⚠️  Warning: Could not register: {e}")
         
     except Exception as e:
         print(f"❌ Error during ingestion: {e}")
@@ -120,6 +283,28 @@ def ingest_chat_command(args):
         print(f"\n✅ Successfully ingested {len(df)} entries")
         print(f"📁 Saved to: {args.output}")
         
+        # Register if requested
+        if hasattr(args, 'register') and args.register:
+            registry = VectorStoreRegistry()
+            try:
+                source_type = args.type if args.type in ["json", "txt"] else "chat"
+                metadata = registry.register(
+                    name=args.register,
+                    path=Path(args.output),
+                    source_type=source_type,
+                    description=f"Chat transcript from {Path(args.source).name}",
+                    record_count=len(df)
+                )
+                print(f"\n📌 Registered as: {metadata.name}")
+                
+                # Set as default if first
+                if len(registry.list_stores()) == 1:
+                    registry.set_default(metadata.name)
+                    print(f"   Set as default store")
+                    
+            except ValueError as e:
+                print(f"⚠️  Warning: Could not register: {e}")
+        
     except Exception as e:
         print(f"❌ Error during ingestion: {e}")
         sys.exit(1)
@@ -147,9 +332,10 @@ def ingest_help_command(args):
    -e, --export FILE       Path to Neptune export file (required)
    -o, --output FILE       Output parquet file (default: scenes.parquet)
    --no-append             Create new store instead of merging
+   --register NAME         Register as named store after ingestion
    
    Example:
-   python main.py ingest-neptune -e thunderchild_chapter3.txt -o scenes.parquet
+   python main.py ingest-neptune -e thunderchild_chapter3.txt --register "campaign-1"
 
 
 2️⃣  LLAMA-SERVER CHAT EXPORTS
@@ -164,9 +350,10 @@ def ingest_help_command(args):
    Options:
    -e, --export FILE       Path to llama-server export JSON (required)
    -o, --output FILE       Output parquet file (default: llama_chats.parquet)
+   --register NAME         Register as named store after ingestion
    
    Example:
-   python main.py ingest-llama -e my_chat_2025.json -o character_scenes.parquet
+   python main.py ingest-llama -e my_chat_2025.json --register "perplexity-research"
 
 
 3️⃣  GENERIC CHAT TRANSCRIPTS
@@ -184,6 +371,7 @@ def ingest_help_command(args):
    --type {json,txt}       File type (default: json)
    -o, --output FILE       Output parquet file (default: chat_transcripts.parquet)
    --chunk-size INT        Text chunk size in characters (default: 500, text only)
+   --register NAME         Register as named store after ingestion
    
    JSON Format Expected:
    [
@@ -197,51 +385,57 @@ def ingest_help_command(args):
    ─────────────────────────────────────────────────────────────────────────
    
    Basic search:
-   python main.py search "your query" -s scenes.parquet
+   python main.py search "your query" --store-name campaign-1
    
    With BGE reranking (better accuracy):
-   python main.py search "your query" -s scenes.parquet --rerank
+   python main.py search "your query" --store-name campaign-1 --rerank
    
    Interactive mode (model cached):
-   python main.py interactive -s scenes.parquet --rerank
+   python main.py interactive --store-name campaign-1 --rerank
    
    View statistics:
-   python main.py stats -s scenes.parquet
+   python main.py stats --store-name campaign-1
    
    List by filter:
-   python main.py list -s scenes.parquet --location "bridge"
+   python main.py list --store-name campaign-1 --location "bridge"
    
    Export for LLM:
-   python main.py export "your query" -f llm-context -o context.md
+   python main.py export "your query" --store-name campaign-1 -f llm-context -o context.md
 
 
-💾 MERGING MULTIPLE SOURCES
-   ─────────────────────────────────────────────────────────────────────────
-   By default, ingestions APPEND to existing stores (merge with deduplication).
-   
-   To start fresh:
-   python main.py ingest-neptune -e export.txt -o scenes.parquet --no-append
-   
-   To add more later:
-   python main.py ingest-neptune -e export2.txt -o scenes.parquet  # appends
-
-
-🔍 TROUBLESHOOTING
+💾 MANAGING MULTIPLE STORES
    ─────────────────────────────────────────────────────────────────────────
    
-   Neptune export format wrong?
-   → Make sure you export from Neptune, not copy-paste. File → Export.
+   List all registered stores:
+   python main.py list-stores
    
-   llama-server export empty?
-   → Check that /api/chat/export endpoint returns valid JSON.
+   Register a store manually:
+   python main.py create-store "my-store" ./scenes.parquet neptune
    
-   Ingestion slow?
-   → Large files take time for embedding. Use --chunk-size to reduce.
-     First ingestion downloads embedding model (~200MB).
+   Set default store:
+   python main.py set-default "my-store"
    
-   Merge errors?
-   → Use --no-append to create fresh store if having issues.
-   → Or delete existing .parquet file and reimport.
+   Use default automatically:
+   python main.py search "query"  # Uses default store
+
+
+╔════════════════════════════════════════════════════════════════════════════╗
+║                              EXAMPLES                                      ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+1. Ingest multiple sources and manage them:
+   python main.py ingest-neptune -e chapter1.txt --register campaign-1
+   python main.py ingest-llama -e chat.json --register perplexity-research
+   python main.py list-stores
+   python main.py set-default campaign-1
+
+2. Search across your stores:
+   python main.py search "Admiral command" --store-name campaign-1 --rerank
+   python main.py search "ethics" --store-name perplexity-research --rerank
+
+3. Keep using old way (backward compatible):
+   python main.py search "query" -s /path/to/scenes.parquet
+   # Still works!
 
 
 ═══════════════════════════════════════════════════════════════════════════════
@@ -304,13 +498,14 @@ def print_reranked_results(results: dict, query: str) -> str:
 
 def query_command(args):
     """Search for scenes with optional reranking"""
-    if not Path(args.store).exists():
-        print(f"❌ Vector store not found: {args.store}")
-        print("   First ingest narratives using: python main.py ingest-help")
+    try:
+        store_path = resolve_store_path(args)
+    except FileNotFoundError as e:
+        print(f"❌ {e}")
         sys.exit(1)
     
     if args.rerank:
-        store = PolarsVectorStoreWithReranker(args.store)
+        store = PolarsVectorStoreWithReranker(store_path)
         results = store.query_and_rerank(
             args.query,
             initial_k=args.initial_k,
@@ -320,7 +515,7 @@ def query_command(args):
         print(print_reranked_results(results, args.query))
     else:
         # Standard embedding-only search
-        store = PolarsVectorStore(args.store)
+        store = PolarsVectorStore(store_path)
         
         if not store.load():
             print("❌ Vector store not found. Ingest narratives first.")
@@ -335,11 +530,13 @@ def list_command(args):
     """List scenes by metadata criteria"""
     import polars as pl
     
-    if not Path(args.store).exists():
-        print(f"❌ Vector store not found: {args.store}")
+    try:
+        store_path = resolve_store_path(args)
+    except FileNotFoundError as e:
+        print(f"❌ {e}")
         sys.exit(1)
     
-    store = PolarsVectorStore(args.store)
+    store = PolarsVectorStore(store_path)
     
     if not store.load():
         print("❌ Vector store not found.")
@@ -370,18 +567,20 @@ def list_command(args):
 
 def stats_command(args):
     """Show vector store statistics"""
-    if not Path(args.store).exists():
-        print(f"❌ Vector store not found: {args.store}")
+    try:
+        store_path = resolve_store_path(args)
+    except FileNotFoundError as e:
+        print(f"❌ {e}")
         sys.exit(1)
     
-    store = PolarsVectorStore(args.store)
+    store = PolarsVectorStore(store_path)
     store.load()
     store.stats()
     
     # Show reranker stats if available
     if args.show_reranker:
         try:
-            reranker_store = PolarsVectorStoreWithReranker(args.store)
+            reranker_store = PolarsVectorStoreWithReranker(store_path)
             reranker_stats = reranker_store.get_reranker_stats()
             print("\n" + "=" * 60)
             print("RERANKER STATISTICS")
@@ -398,16 +597,18 @@ def stats_command(args):
 
 def interactive_command(args):
     """Interactive search mode with optional reranking"""
-    if not Path(args.store).exists():
-        print(f"❌ Vector store not found: {args.store}")
+    try:
+        store_path = resolve_store_path(args)
+    except FileNotFoundError as e:
+        print(f"❌ {e}")
         sys.exit(1)
     
     if args.rerank:
-        store = PolarsVectorStoreWithReranker(args.store)
+        store = PolarsVectorStoreWithReranker(store_path)
         stats = store.get_reranker_stats()
         reranker_status = f"✅ {stats['model']} ({stats['vram_mb']:.0f}MB VRAM, FP16)"
     else:
-        store = PolarsVectorStore(args.store)
+        store = PolarsVectorStore(store_path)
         if not store.load():
             print("❌ Vector store not found.")
             sys.exit(1)
@@ -415,7 +616,7 @@ def interactive_command(args):
     
     print("\n" + "=" * 80)
     print("Interactive Search Mode")
-    print(f"Store: {args.store}")
+    print(f"Store: {store_path}")
     print(f"Reranking: {reranker_status}")
     print("=" * 80)
     print("Commands:")
@@ -457,11 +658,13 @@ def export_command(args):
     """Export search results for reranking/LLM"""
     from naragtive.reranker_export import RerankerExporter
     
-    if not Path(args.store).exists():
-        print(f"❌ Vector store not found: {args.store}")
+    try:
+        store_path = resolve_store_path(args)
+    except FileNotFoundError as e:
+        print(f"❌ {e}")
         sys.exit(1)
     
-    store = PolarsVectorStore(args.store)
+    store = PolarsVectorStore(store_path)
     
     if not store.load():
         print("❌ Vector store not found.")
@@ -512,15 +715,19 @@ def main():
 QUICK START:
 
   1. Ingest narratives:
-     python main.py ingest-neptune -e export.txt
-     python main.py ingest-llama -e chat_export.json
+     python main.py ingest-neptune -e export.txt --register "campaign-1"
+     python main.py ingest-llama -e chat_export.json --register "perplexity"
   
-  2. Search:
-     python main.py search "your query"
-     python main.py search "your query" --rerank  # better accuracy
+  2. List registered stores:
+     python main.py list-stores
   
-  3. Interactive mode:
-     python main.py interactive --rerank
+  3. Search by store name:
+     python main.py search "your query" --store-name "campaign-1"
+     python main.py search "your query" --store-name "campaign-1" --rerank
+  
+  4. Set default store:
+     python main.py set-default "campaign-1"
+     python main.py search "query"  # Uses default
   
   For detailed help:
      python main.py ingest-help
@@ -529,6 +736,49 @@ QUICK START:
     )
     
     subparsers = parser.add_subparsers(dest="command", help="Command to run")
+    
+    # ========== REGISTRY COMMANDS ==========
+    
+    # List stores
+    list_stores_parser = subparsers.add_parser(
+        "list-stores",
+        help="List all registered vector stores"
+    )
+    list_stores_parser.set_defaults(func=list_stores_command)
+    
+    # Create store
+    create_store_parser = subparsers.add_parser(
+        "create-store",
+        help="Register a new named vector store"
+    )
+    create_store_parser.add_argument(
+        "name",
+        help="Store name (e.g., 'campaign-1')"
+    )
+    create_store_parser.add_argument(
+        "path",
+        help="Path to parquet file"
+    )
+    create_store_parser.add_argument(
+        "source_type",
+        help="Source type (neptune, llama-server, chat, etc.)"
+    )
+    create_store_parser.add_argument(
+        "-d", "--description",
+        help="Optional description"
+    )
+    create_store_parser.set_defaults(func=create_store_command)
+    
+    # Set default
+    set_default_parser = subparsers.add_parser(
+        "set-default",
+        help="Set default store for commands"
+    )
+    set_default_parser.add_argument(
+        "name",
+        help="Store name to set as default"
+    )
+    set_default_parser.set_defaults(func=set_default_command)
     
     # ========== INGESTION COMMANDS ==========
     
@@ -559,6 +809,10 @@ QUICK START:
         action="store_true",
         help="Create new store instead of merging with existing"
     )
+    neptune_parser.add_argument(
+        "--register",
+        help="Register as named store after ingestion"
+    )
     neptune_parser.set_defaults(func=ingest_neptune_command, append=True)
     
     # Ingest llama-server
@@ -575,6 +829,10 @@ QUICK START:
         "-o", "--output",
         default="./llama_chats.parquet",
         help="Output parquet file (default: ./llama_chats.parquet)"
+    )
+    llama_parser.add_argument(
+        "--register",
+        help="Register as named store after ingestion"
     )
     llama_parser.set_defaults(func=ingest_llama_command)
     
@@ -605,6 +863,10 @@ QUICK START:
         default=500,
         help="Text chunk size in characters for text files (default: 500)"
     )
+    chat_parser.add_argument(
+        "--register",
+        help="Register as named store after ingestion"
+    )
     chat_parser.set_defaults(func=ingest_chat_command)
     
     # ========== SEARCH COMMANDS ==========
@@ -621,7 +883,11 @@ QUICK START:
     search_parser.add_argument(
         "-s", "--store",
         default="./scenes.parquet",
-        help="Path to vector store"
+        help="Path to vector store (for backward compatibility)"
+    )
+    search_parser.add_argument(
+        "--store-name",
+        help="Named store from registry (overrides --store)"
     )
     search_parser.add_argument(
         "--rerank",
@@ -653,7 +919,11 @@ QUICK START:
     list_parser.add_argument(
         "-s", "--store",
         default="./scenes.parquet",
-        help="Path to vector store"
+        help="Path to vector store (for backward compatibility)"
+    )
+    list_parser.add_argument(
+        "--store-name",
+        help="Named store from registry (overrides --store)"
     )
     list_parser.set_defaults(func=list_command)
     
@@ -662,7 +932,11 @@ QUICK START:
     stats_parser.add_argument(
         "-s", "--store",
         default="./scenes.parquet",
-        help="Path to vector store"
+        help="Path to vector store (for backward compatibility)"
+    )
+    stats_parser.add_argument(
+        "--store-name",
+        help="Named store from registry (overrides --store)"
     )
     stats_parser.add_argument(
         "--show-reranker",
@@ -685,7 +959,11 @@ QUICK START:
     interactive_parser.add_argument(
         "-s", "--store",
         default="./scenes.parquet",
-        help="Path to vector store"
+        help="Path to vector store (for backward compatibility)"
+    )
+    interactive_parser.add_argument(
+        "--store-name",
+        help="Named store from registry (overrides --store)"
     )
     interactive_parser.add_argument(
         "--rerank",
@@ -725,7 +1003,11 @@ QUICK START:
     export_parser.add_argument(
         "-s", "--store",
         default="./scenes.parquet",
-        help="Path to vector store"
+        help="Path to vector store (for backward compatibility)"
+    )
+    export_parser.add_argument(
+        "--store-name",
+        help="Named store from registry (overrides --store)"
     )
     export_parser.set_defaults(func=export_command)
     
@@ -749,14 +1031,16 @@ QUICK START:
         print("\n" + "=" * 80)
         print("QUICK START:")
         print("=" * 80)
-        print("\n1. Show ingestion help:")
-        print("   python main.py ingest-help\n")
-        print("2. Ingest your narratives:")
-        print("   python main.py ingest-neptune -e your_export.txt")
-        print("   python main.py ingest-llama -e chat_export.json\n")
-        print("3. Search:")
-        print("   python main.py search \"your query\"")
-        print("   python main.py search \"your query\" --rerank\n")
+        print("\n1. Ingest with auto-registration:")
+        print("   python main.py ingest-neptune -e export.txt --register 'campaign-1'\n")
+        print("2. List your stores:")
+        print("   python main.py list-stores\n")
+        print("3. Search by store name:")
+        print("   python main.py search \"your query\" --store-name campaign-1 --rerank\n")
+        print("4. Set and use default:")
+        print("   python main.py set-default campaign-1")
+        print("   python main.py search \"query\"  # Uses default\n")
+        print("For detailed help: python main.py ingest-help\n")
         sys.exit(0)
     
     args.func(args)
