@@ -1,274 +1,271 @@
-#!/usr/bin/env python3
 """
-Vector Store Registry: Manage multiple parquet stores with named aliases.
+Vector Store Registry - Manage multiple named vector stores.
 
-Provides a registry system for organizing and switching between multiple
-vector stores, with persistent metadata tracking and default store support.
+Provides a persistent registry system for tracking and managing multiple
+Polars vector stores, enabling seamless switching between different projects
+and narrative sources (Neptune RPG chapters, Perplexity chats, text datasets, etc.).
+
+Storage:
+  ~/.naragtive/stores/registry.json       - Store metadata and paths
+  ~/.naragtive/stores/default.txt        - Current default store name
 
 Usage:
-    registry = VectorStoreRegistry()
-    store_meta = registry.register(
-        name="campaign-1",
-        path=Path("scenes.parquet"),
-        source_type="neptune",
-        description="Campaign 1 scenes"
-    )
-    store = registry.get("campaign-1")
-    registry.set_default("campaign-1")
+  registry = VectorStoreRegistry()
+  
+  # Register a store
+  metadata = registry.register(
+      name="campaign-1",
+      path=Path("./scenes.parquet"),
+      source_type="neptune",
+      description="Campaign 1 narrative scenes"
+  )
+  
+  # Get a store
+  store = registry.get("campaign-1")
+  
+  # Set default
+  registry.set_default("campaign-1")
+  
+  # List all stores
+  for meta in registry.list_stores():
+      print(f"{meta.name}: {meta.record_count} records")
+  
+  # Print formatted table
+  registry.print_table()
 """
 
-from __future__ import annotations
-
 import json
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, asdict
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Dict, List, Any
-
+from typing import Optional, List, Dict, Any
 import polars as pl
+
 from naragtive.polars_vectorstore import PolarsVectorStore
 
 
 @dataclass
 class StoreMetadata:
-    """Metadata about a registered vector store.
+    """Metadata for a registered vector store.
     
     Attributes:
-        name: Unique store identifier (e.g., "campaign-1", "perplexity-research")
-        path: Full path to the parquet file
-        created_at: ISO datetime string when store was registered
-        source_type: Origin of data ("neptune", "llama-server", "chat", etc.)
-        record_count: Number of scenes/entries in the store
+        name: Unique store identifier (e.g., "campaign-1")
+        path: Full path to parquet file
+        created_at: ISO datetime when registered
+        source_type: Origin type ("neptune", "llama-server", "chat", etc.)
+        record_count: Number of scenes/entries in store
         description: Optional human-readable description
     """
+    
     name: str
-    path: str
+    path: Path
     created_at: str
     source_type: str
     record_count: int
-    description: Optional[str] = None
-
+    description: str = ""
+    
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization.
         
         Returns:
-            Dictionary representation of metadata
+            Dictionary with all fields, path converted to string
         """
-        return asdict(self)
-
+        data = asdict(self)
+        data['path'] = str(data['path'])
+        return data
+    
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> StoreMetadata:
-        """Create from dictionary.
+    def from_dict(cls, data: Dict[str, Any]) -> 'StoreMetadata':
+        """Create from dictionary (e.g., from JSON).
         
         Args:
-            data: Dictionary with metadata fields
+            data: Dictionary with store metadata
             
         Returns:
             StoreMetadata instance
         """
+        data = data.copy()
+        data['path'] = Path(data['path'])
         return cls(**data)
 
 
 class VectorStoreRegistry:
-    """Registry for managing multiple vector stores.
+    """Persistent registry for managing multiple vector stores.
     
-    Maintains a registry of named stores with metadata, allowing users to
-    reference stores by name instead of full file paths. Stores metadata
-    in ~/.naragtive/stores/registry.json and tracks default store in
-    ~/.naragtive/stores/default.txt.
+    Manages registration, lookup, and switching between multiple vector stores
+    stored as Polars parquet files. Provides default store functionality and
+    persistent storage in ~/.naragtive/stores/.
     
     Attributes:
-        REGISTRY_DIR: Directory for store metadata (~/.naragtive/stores)
+        REGISTRY_DIR: Path to registry directory (~/.naragtive/stores/)
         REGISTRY_FILE: Path to registry.json file
         DEFAULT_FILE: Path to default.txt file
     """
-
-    REGISTRY_DIR = Path.home() / ".naragtive" / "stores"
-    REGISTRY_FILE = REGISTRY_DIR / "registry.json"
-    DEFAULT_FILE = REGISTRY_DIR / "default.txt"
-
+    
+    REGISTRY_DIR: Path = Path.home() / ".naragtive" / "stores"
+    REGISTRY_FILE: Path = REGISTRY_DIR / "registry.json"
+    DEFAULT_FILE: Path = REGISTRY_DIR / "default.txt"
+    
     def __init__(self) -> None:
-        """Initialize registry and load existing stores."""
-        # Create registry directory if needed
+        """Initialize registry, loading from disk or creating if needed.
+        
+        Creates ~/.naragtive/stores/ directory if it doesn't exist.
+        Loads existing registry.json or starts with empty registry.
+        """
+        # Ensure registry directory exists
         self.REGISTRY_DIR.mkdir(parents=True, exist_ok=True)
         
-        # Load existing stores
+        # Load existing registry or start fresh
         self._stores: Dict[str, StoreMetadata] = self._load_registry()
-
-    def _load_registry(self) -> Dict[str, StoreMetadata]:
-        """Load registry from JSON file.
-        
-        Returns:
-            Dictionary mapping store names to StoreMetadata
-        """
-        if not self.REGISTRY_FILE.exists():
-            return {}
-        
-        try:
-            with open(self.REGISTRY_FILE, "r") as f:
-                data = json.load(f)
-            return {name: StoreMetadata.from_dict(meta) for name, meta in data.items()}
-        except (json.JSONDecodeError, ValueError) as e:
-            print(f"⚠️  Warning: Could not load registry: {e}")
-            return {}
-
-    def _save_registry(self) -> None:
-        """Save registry to JSON file atomically.
-        
-        Writes to a temporary file first, then atomically moves to registry.json.
-        """
-        # Create temp file in same directory (atomic rename on same filesystem)
-        temp_file = self.REGISTRY_FILE.with_suffix(".tmp")
-        
-        data = {name: meta.to_dict() for name, meta in self._stores.items()}
-        
-        with open(temp_file, "w") as f:
-            json.dump(data, f, indent=2)
-        
-        # Atomic rename
-        temp_file.replace(self.REGISTRY_FILE)
-
+    
     def register(
         self,
         name: str,
-        path: Path | str,
+        path: Path,
         source_type: str,
-        description: Optional[str] = None,
-        record_count: Optional[int] = None,
+        description: str = "",
+        record_count: Optional[int] = None
     ) -> StoreMetadata:
         """Register a new vector store.
         
         Args:
-            name: Unique identifier for this store (e.g., "campaign-1")
-            path: Path to the parquet file
-            source_type: Source origin ("neptune", "llama-server", "chat", etc.)
-            description: Optional description of store contents
-            record_count: Number of records (auto-detected if not provided)
+            name: Unique store identifier
+            path: Path to parquet file
+            source_type: Source type (e.g., "neptune", "llama-server")
+            description: Optional human-readable description
+            record_count: Number of records. If None, auto-detect from parquet
             
         Returns:
             StoreMetadata for the registered store
             
         Raises:
-            ValueError: If store name already exists
+            ValueError: If name already exists
             FileNotFoundError: If parquet file doesn't exist
         """
-        path = Path(path)
-        
-        # Validate store name
+        # Validate name is unique
         if name in self._stores:
-            raise ValueError(f"Store '{name}' already exists. Use a different name.")
+            raise ValueError(
+                f"Store name '{name}' already exists in registry. "
+                f"Use rename() to change existing store name."
+            )
         
         # Validate file exists
         if not path.exists():
-            raise FileNotFoundError(f"Parquet file not found: {path}")
+            raise FileNotFoundError(
+                f"Parquet file not found: {path}\n"
+                f"Make sure file exists before registering."
+            )
         
         # Auto-detect record count if not provided
         if record_count is None:
             try:
-                df = pl.read_parquet(path)
+                df = pl.read_parquet(path, columns=['id'])
                 record_count = len(df)
             except Exception as e:
-                raise ValueError(f"Could not read parquet file {path}: {e}")
+                raise ValueError(
+                    f"Could not read parquet file {path}: {e}\n"
+                    f"Provide record_count manually: "
+                    f"registry.register(..., record_count=N)"
+                )
         
         # Create metadata
         metadata = StoreMetadata(
             name=name,
-            path=str(path),
+            path=path,
             created_at=datetime.utcnow().isoformat(),
             source_type=source_type,
             record_count=record_count,
-            description=description,
+            description=description
         )
         
-        # Store and persist
+        # Save to registry
         self._stores[name] = metadata
         self._save_registry()
         
         return metadata
-
+    
     def get(self, name: str) -> PolarsVectorStore:
-        """Get a PolarsVectorStore instance by name.
+        """Get PolarsVectorStore instance by name.
         
         Args:
-            name: Store name, or "default" to use default store
+            name: Store name or "default" for default store
             
         Returns:
-            PolarsVectorStore instance pointing to correct parquet
+            PolarsVectorStore instance configured for the store
             
         Raises:
-            KeyError: If store not found
+            KeyError: If store name not found
         """
         # Handle "default" keyword
         if name == "default":
             default_name = self.get_default()
             if default_name is None:
                 raise KeyError(
-                    "No default store set. Register a store first: "
-                    "python main.py ingest-neptune -e export.txt --register 'store-name'"
+                    "No default store set. "
+                    "Use: registry.set_default('store_name')"
                 )
             name = default_name
         
         # Look up store
         if name not in self._stores:
-            available = ", ".join(sorted(self._stores.keys()))
+            available = ", ".join(self._stores.keys()) if self._stores else "none"
             raise KeyError(
-                f"Store '{name}' not found.\n"
+                f"Store '{name}' not found in registry.\n"
                 f"Available stores: {available}\n"
-                f"Register new store: python main.py ingest-neptune -e file.txt --register 'name'"
+                f"Use: python main.py list-stores"
             )
         
-        # Return PolarsVectorStore instance
         metadata = self._stores[name]
-        return PolarsVectorStore(metadata.path)
-
+        return PolarsVectorStore(str(metadata.path))
+    
     def list_stores(self) -> List[StoreMetadata]:
-        """Get all registered stores.
+        """List all registered stores.
         
         Returns:
-            List of StoreMetadata sorted by name
+            List of StoreMetadata objects, sorted by name
         """
         return sorted(self._stores.values(), key=lambda m: m.name)
-
+    
     def get_default(self) -> Optional[str]:
-        """Get default store name.
+        """Get current default store name.
         
         Returns:
-            Default store name, or None if no stores exist
-            
-        Priority:
-        1. Store name in ~/.naragtive/stores/default.txt (if exists)
-        2. First registered store (alphabetically)
-        3. None if no stores
+            Store name, or None if no default set.
+            If no explicit default, returns first store by name.
         """
-        # Check for explicit default file
+        # Check for explicit default
         if self.DEFAULT_FILE.exists():
-            name = self.DEFAULT_FILE.read_text().strip()
-            if name in self._stores:
-                return name
+            try:
+                default = self.DEFAULT_FILE.read_text().strip()
+                if default in self._stores:
+                    return default
+            except Exception:
+                pass
         
-        # Fall back to first store
+        # Return first store if any exist
         if self._stores:
             return sorted(self._stores.keys())[0]
         
         return None
-
+    
     def set_default(self, name: str) -> None:
-        """Set the default store.
+        """Set default store.
         
         Args:
             name: Store name to set as default
             
         Raises:
-            KeyError: If store not found
+            KeyError: If store name doesn't exist
         """
         if name not in self._stores:
-            raise KeyError(f"Store '{name}' not found. Run 'list-stores' to see available stores.")
+            available = ", ".join(self._stores.keys())
+            raise KeyError(
+                f"Store '{name}' not found in registry.\n"
+                f"Available stores: {available}"
+            )
         
-        # Write default file atomically
-        temp_file = self.DEFAULT_FILE.with_suffix(".tmp")
-        temp_file.write_text(name)
-        temp_file.replace(self.DEFAULT_FILE)
-
+        self.DEFAULT_FILE.write_text(name)
+    
     def delete(self, name: str) -> None:
         """Delete a store from registry.
         
@@ -278,19 +275,19 @@ class VectorStoreRegistry:
             name: Store name to delete
             
         Raises:
-            KeyError: If store not found
+            KeyError: If store name doesn't exist
         """
         if name not in self._stores:
-            raise KeyError(f"Store '{name}' not found.")
+            raise KeyError(f"Store '{name}' not found in registry")
         
         del self._stores[name]
         self._save_registry()
         
         # Clear default if this was the default store
-        if self.DEFAULT_FILE.exists():
-            if self.DEFAULT_FILE.read_text().strip() == name:
+        if self.get_default() == name:
+            if self.DEFAULT_FILE.exists():
                 self.DEFAULT_FILE.unlink()
-
+    
     def rename(self, old_name: str, new_name: str) -> None:
         """Rename a registered store.
         
@@ -299,55 +296,116 @@ class VectorStoreRegistry:
             new_name: New store name
             
         Raises:
-            KeyError: If old store not found
+            KeyError: If old name doesn't exist
             ValueError: If new name already exists
         """
         if old_name not in self._stores:
-            raise KeyError(f"Store '{old_name}' not found.")
+            raise KeyError(f"Store '{old_name}' not found in registry")
         
         if new_name in self._stores:
-            raise ValueError(f"Store '{new_name}' already exists.")
+            raise ValueError(
+                f"Store '{new_name}' already exists. "
+                f"Delete it first or use different name."
+            )
         
-        # Rename
-        metadata = self._stores.pop(old_name)
+        # Move metadata
+        metadata = self._stores[old_name]
         metadata.name = new_name
         self._stores[new_name] = metadata
+        del self._stores[old_name]
         self._save_registry()
         
-        # Update default if needed
-        if self.DEFAULT_FILE.exists():
-            if self.DEFAULT_FILE.read_text().strip() == old_name:
-                self.set_default(new_name)
-
+        # Update default if this was the default store
+        if self.get_default() == old_name:
+            self.set_default(new_name)
+    
     def print_table(self) -> None:
-        """Print registry as a formatted table.
+        """Print formatted table of all registered stores.
         
-        Shows all stores with their metadata. Marks default store with ⚠️.
+        Shows store name, source type, record count, creation date, and description.
+        Marks default store with ⭐ symbol.
         """
-        if not self._stores:
-            print("\nNo registered stores. Ingest narratives with:")
-            print("  python main.py ingest-neptune -e export.txt --register 'name'")
-            return
-        
+        stores = self.list_stores()
         default = self.get_default()
         
+        if not stores:
+            print("\n" + "=" * 90)
+            print("REGISTERED VECTOR STORES")
+            print("=" * 90)
+            print("\nNo stores registered.")
+            print("Register your first store with:")
+            print("  python main.py ingest-neptune -e export.txt --register 'store-name'")
+            print("=" * 90 + "\n")
+            return
+        
+        # Calculate column widths
+        name_width = max(len(s.name) for s in stores) + 4
+        type_width = max(len(s.source_type) for s in stores) + 2
+        
+        # Print header
         print("\n" + "=" * 90)
         print("REGISTERED VECTOR STORES")
         print("=" * 90)
+        print()
         
-        # Header
-        print(f"{'':3} {'Name':<25} {'Type':<15} {'Records':<10} {'Created':<19} {'Description':<20}")
-        print("-" * 90)
-        
-        # Rows
-        for store in self.list_stores():
-            marker = "⚠️" if store.name == default else " "
-            desc = (store.description[:18] + "...") if store.description and len(store.description) > 20 else (store.description or "")
+        # Print each store
+        for store in stores:
+            marker = "⭐" if store.name == default else " "
+            record_str = f"{store.record_count:,}"
+            date_str = store.created_at[:10]  # ISO date only
+            desc_str = store.description[:40] if store.description else ""
+            
             print(
-                f"{marker:3} {store.name:<25} {store.source_type:<15} "
-                f"{store.record_count:<10} {store.created_at:<19} {desc:<20}"
+                f"{marker} {store.name:<{name_width}} {store.source_type:<{type_width}} "
+                f"{record_str:>8} records  {date_str}  {desc_str}"
             )
         
+        print()
         print("=" * 90)
-        print(f"\nDefault: {default or 'None'}")
-        print("Use 'python main.py set-default <name>' to change default\n")
+        print(f"Default: {default}")
+        print("Use 'python main.py set-default <name>' to change default")
+        print("=" * 90 + "\n")
+    
+    # ========== Private Methods ==========
+    
+    def _load_registry(self) -> Dict[str, StoreMetadata]:
+        """Load registry from disk or return empty if doesn't exist.
+        
+        Returns:
+            Dictionary mapping store names to StoreMetadata
+        """
+        if not self.REGISTRY_FILE.exists():
+            return {}
+        
+        try:
+            data = json.loads(self.REGISTRY_FILE.read_text())
+            return {
+                name: StoreMetadata.from_dict(meta)
+                for name, meta in data.items()
+            }
+        except Exception as e:
+            print(
+                f"⚠️  Warning: Could not load registry: {e}\n"
+                f"   Starting with empty registry."
+            )
+            return {}
+    
+    def _save_registry(self) -> None:
+        """Save registry to disk atomically.
+        
+        Writes to temporary file first, then renames to ensure atomicity.
+        This prevents corruption if process is interrupted.
+        """
+        # Ensure directory exists
+        self.REGISTRY_DIR.mkdir(parents=True, exist_ok=True)
+        
+        # Build data
+        data = {
+            name: meta.to_dict()
+            for name, meta in self._stores.items()
+        }
+        
+        # Write atomically (write to temp, then rename)
+        temp_file = self.REGISTRY_FILE.with_suffix('.tmp')
+        temp_file.write_text(json.dumps(data, indent=2))
+        temp_file.replace(self.REGISTRY_FILE)
