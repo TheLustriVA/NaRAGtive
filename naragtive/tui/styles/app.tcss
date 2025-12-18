@@ -1,9 +1,8 @@
 /* NaRAGtive TUI Stylesheet (TCSS) */
 
-/* Color scheme */
+/* Color scheme - using Textual built-in variables */
 $primary: $accent;
 $secondary: $panel;
-$highlight: $text-muted;
 
 /* Screen layout */
 Screen {
@@ -62,12 +61,12 @@ Footer {
 
 .store-row:hover {
     background: $primary;
-    color: $text-selected;
+    color: $foreground;
 }
 
 .store-row.selected {
     background: $accent;
-    color: $text-selected;
+    color: $text;
     text-style: bold;
 }
 
@@ -109,7 +108,7 @@ Button {
 
 Button:focus {
     background: $primary;
-    color: $text-selected;
+    color: $text;
 }
 
 Button:hover {
