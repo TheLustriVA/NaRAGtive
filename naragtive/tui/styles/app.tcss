@@ -1,0 +1,182 @@
+/* NaRAGtive TUI Stylesheet (TCSS) */
+
+/* Color scheme */
+$primary: $accent;
+$secondary: $panel;
+$highlight: $text-muted;
+
+/* Screen layout */
+Screen {
+    layout: vertical;
+    background: $surface;
+    color: $text;
+}
+
+/* Header styling */
+Header {
+    background: $boost;
+    color: $text;
+    text-style: bold;
+    dock: top;
+    height: 1;
+}
+
+/* Footer for keybindings */
+Footer {
+    background: $panel;
+    color: $text-muted;
+    dock: bottom;
+    height: auto;
+}
+
+/* Main content area */
+#main-container {
+    layout: vertical;
+    width: 1fr;
+    height: 1fr;
+    border: solid $primary;
+    background: $surface;
+}
+
+/* Dashboard title */
+#dashboard-title {
+    text-style: bold;
+    margin-bottom: 1;
+    color: $text;
+}
+
+/* Store list widget */
+#store-list {
+    width: 1fr;
+    height: 1fr;
+    border: solid $secondary;
+    background: $panel;
+}
+
+/* Store list rows */
+.store-row {
+    width: 1fr;
+    height: 1;
+    background: $panel;
+}
+
+.store-row:hover {
+    background: $primary;
+    color: $text-selected;
+}
+
+.store-row.selected {
+    background: $accent;
+    color: $text-selected;
+    text-style: bold;
+}
+
+.store-row.default {
+    text-style: bold;
+}
+
+/* Store metadata display */
+.store-name {
+    width: 15;
+    text-overflow: ellipsis;
+}
+
+.store-type {
+    width: 12;
+    text-align: center;
+}
+
+.store-count {
+    width: 12;
+    text-align: right;
+}
+
+.store-date {
+    width: 10;
+    text-align: center;
+}
+
+.store-default {
+    width: 4;
+    text-align: center;
+}
+
+/* Button styling */
+Button {
+    margin: 0 1;
+    width: auto;
+}
+
+Button:focus {
+    background: $primary;
+    color: $text-selected;
+}
+
+Button:hover {
+    background: $secondary;
+}
+
+/* Label styling */
+Label {
+    margin: 0;
+    color: $text-muted;
+}
+
+/* Static text */
+Static {
+    width: 1fr;
+}
+
+/* Status display */
+#status-bar {
+    width: 1fr;
+    height: 1;
+    background: $panel;
+    color: $text-muted;
+    border-top: solid $secondary;
+    padding: 0 1;
+}
+
+.status-item {
+    width: auto;
+    margin: 0 2;
+}
+
+.status-success {
+    color: $success;
+}
+
+.status-warning {
+    color: $warning;
+}
+
+.status-error {
+    color: $error;
+}
+
+/* Dialog/Modal */
+Dialog {
+    width: 60;
+    height: auto;
+    border: solid $primary;
+    background: $surface;
+    box-shadow: -1 -1 5 0 rgba(0, 0, 0, 0.5);
+}
+
+Dialog > Button {
+    margin: 1;
+}
+
+/* Responsive adjustments */
+@media (max-height: 10) {
+    Header {
+        display: none;
+    }
+}
+
+@media (max-width: 50) {
+    .store-type,
+    .store-count {
+        display: none;
+    }
+}
