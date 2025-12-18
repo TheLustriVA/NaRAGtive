@@ -3,7 +3,7 @@
 from typing import TYPE_CHECKING
 
 from textual.screen import Screen
-from textual.containers import Container
+from textual.app import ComposeResult
 
 if TYPE_CHECKING:
     from naragtive.tui.app import NaRAGtiveApp
@@ -34,8 +34,10 @@ class BaseScreen(Screen[None]):
         return super().app  # type: ignore
 
     def action_show_help(self) -> None:
-        """Show help/keybindings."""
-        # TODO: Implement help screen in Phase 2
+        """Show help/keybindings.
+        
+        TODO: Implement help screen in Phase 2
+        """
         self.notify("Help not yet implemented", title="Help", timeout=3)
 
     def action_back(self) -> None:
