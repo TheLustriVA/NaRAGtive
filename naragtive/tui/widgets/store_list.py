@@ -5,8 +5,8 @@ from datetime import datetime
 
 from textual.widget import Widget
 from textual.reactive import reactive
-from textual.containers import Container, Vertical, Horizontal
-from textual.widgets import Static, Button
+from textual.containers import Vertical
+from textual.widgets import Static
 from textual.message import Message
 
 from naragtive.store_registry import StoreMetadata
@@ -32,7 +32,7 @@ class StoreItem(Static):
     
     StoreItem.selected {
         background: $primary;
-        color: $text-selected;
+        color: $text;
         text-style: bold;
     }
     
