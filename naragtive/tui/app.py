@@ -4,12 +4,8 @@ Provides a modern, keyboard-driven terminal interface for managing
 vector stores and performing RAG operations.
 """
 
-import sys
-from pathlib import Path
-
 from textual.app import App, ComposeResult
 from textual.widgets import Header, Footer
-from textual.containers import Container
 
 from naragtive.tui.styles import APP_CSS
 from naragtive.tui.screens.dashboard import DashboardScreen
@@ -24,7 +20,7 @@ class NaRAGtiveApp(App[None]):
     Attributes:
         TITLE: Application title
         SUBTITLE: Application subtitle
-        CSS: Path to TCSS stylesheet
+        CSS_PATH: Path to TCSS stylesheet
         BINDINGS: Global key bindings
     """
 
@@ -46,12 +42,12 @@ class NaRAGtiveApp(App[None]):
         Creates the header, footer, and main content area.
         
         Yields:
-            Header, Footer, and main content widgets
+            Header and Footer widgets
         """
         yield Header()
         yield Footer()
 
-    def on_mount(self) -> None:
+    async def on_mount(self) -> None:
         """Handle app mount.
         
         Starts with the dashboard screen when app starts.
