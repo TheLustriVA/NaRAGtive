@@ -12,7 +12,8 @@ dependencies = [
     "transformers>=4.30.0",
     "torch>=2.0.0",
     "numpy==2.3.5",
+    "textual==6.11.0"
 ]
 [project.optional-dependencies]
-chromadb = ["chromadb>=0.3.0"]
-dev = ["pytest", "black", "mypy"]
+tui = ["textual>=6.11.0"]
+dev = ["pytest", "black", "mypy", "textual-dev>=6.4.0,<7.0"]
