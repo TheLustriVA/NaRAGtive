@@ -3,9 +3,10 @@
 import asyncio
 from typing import TYPE_CHECKING
 
-from textual.containers import Container, Vertical, Horizontal
+from textual.containers import Vertical, Horizontal
 from textual.widgets import Static, Button, Label
 from textual.reactive import reactive
+from textual.app import ComposeResult
 
 from naragtive.store_registry import StoreMetadata, VectorStoreRegistry
 from naragtive.tui.screens.base import BaseScreen
@@ -23,8 +24,12 @@ class SearchScreenPlaceholder(BaseScreen):
         ("escape", "back", "Back"),
     ] + BaseScreen.BINDINGS
 
-    def compose(self):
-        """Compose search screen."""
+    def compose(self) -> ComposeResult:
+        """Compose search screen.
+        
+        Yields:
+            Placeholder content widget
+        """
         yield Static("Search Screen (Phase 2)", id="placeholder-content")
 
 
@@ -35,8 +40,12 @@ class IngestScreenPlaceholder(BaseScreen):
         ("escape", "back", "Back"),
     ] + BaseScreen.BINDINGS
 
-    def compose(self):
-        """Compose ingest screen."""
+    def compose(self) -> ComposeResult:
+        """Compose ingest screen.
+        
+        Yields:
+            Placeholder content widget
+        """
         yield Static("Ingest Screen (Phase 2)", id="placeholder-content")
 
 
@@ -47,8 +56,12 @@ class ManageStoresScreenPlaceholder(BaseScreen):
         ("escape", "back", "Back"),
     ] + BaseScreen.BINDINGS
 
-    def compose(self):
-        """Compose manage stores screen."""
+    def compose(self) -> ComposeResult:
+        """Compose manage stores screen.
+        
+        Yields:
+            Placeholder content widget
+        """
         yield Static("Manage Stores Screen (Phase 2)", id="placeholder-content")
 
 
@@ -128,8 +141,9 @@ class DashboardScreen(BaseScreen):
         """Initialize dashboard screen."""
         super().__init__()
         self._registry: VectorStoreRegistry | None = None
+        self.store_list: StoreListWidget | None = None
 
-    def compose(self):
+    def compose(self) -> ComposeResult:
         """Compose dashboard UI.
         
         Yields:
@@ -153,9 +167,13 @@ class DashboardScreen(BaseScreen):
                 yield Button("Refresh (r)", id="btn-refresh", variant="default")
 
     async def on_mount(self) -> None:
-        """Handle screen mount."""
+        """Handle screen mount.
+        
+        Loads stores from registry on mount.
+        """
         await self._load_stores()
-        self.set_focus(self.store_list)
+        if self.store_list is not None:
+            self.set_focus(self.store_list)
 
     async def _load_stores(self) -> None:
         """Load stores from registry.
@@ -173,7 +191,7 @@ class DashboardScreen(BaseScreen):
             self.default_store = default
             
             # Update widget
-            if hasattr(self, "store_list"):
+            if self.store_list is not None:
                 self.store_list.update_stores(stores, default)
             
             # Update status
@@ -182,7 +200,10 @@ class DashboardScreen(BaseScreen):
             self.app.notify(f"Error loading stores: {e}", severity="error", timeout=5)
 
     def _update_store_info(self) -> None:
-        """Update store info display."""
+        """Update store info display.
+        
+        Updates the status label with current store information.
+        """
         if not self.stores:
             info_text = "No stores registered. Use 'i' to ingest data."
         else:
@@ -216,7 +237,10 @@ class DashboardScreen(BaseScreen):
         self.app.push_screen(ManageStoresScreenPlaceholder())
 
     def action_refresh(self) -> None:
-        """Refresh store list."""
+        """Refresh store list.
+        
+        Schedules an async store refresh for the next event loop iteration.
+        """
         self.call_later(self._load_stores)
 
     def action_set_default(self) -> None:
@@ -228,7 +252,8 @@ class DashboardScreen(BaseScreen):
             self.app.notify("No store selected", severity="warning", timeout=3)
             return
         
-        async def _set_default() -> None:
+        async def _set_default_async() -> None:
+            """Async helper to set default store."""
             loop = asyncio.get_event_loop()
             try:
                 registry = await loop.run_in_executor(None, VectorStoreRegistry)
@@ -247,7 +272,7 @@ class DashboardScreen(BaseScreen):
                     timeout=5
                 )
         
-        self.call_later(_set_default)
+        self.call_later(_set_default_async)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle button presses.
