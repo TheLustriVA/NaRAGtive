@@ -20,7 +20,7 @@ dependencies = [
 ]
 [project.optional-dependencies]
 tui = ["textual>=0.70.0"]
-dev = ["pytest", "black", "mypy", "textual-dev>=6.4.0,<7.0"]
+dev = ["pytest", "pytest-asyncio", "black", "mypy", "textual-dev>=6.4.0,<7.0"]
 
 [tool.setuptools]
 packages = ["naragtive"]
@@ -28,3 +28,6 @@ include-package-data = true
 
 [tool.setuptools.package-data]
 naragtive = ["tui/styles/*.tcss"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
