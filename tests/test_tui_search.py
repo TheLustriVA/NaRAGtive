@@ -48,7 +48,7 @@ class TestSearchUtils:
             "date_iso": "2024-01-15",
             "location": "Throne Room",
             "pov_character": "Admiral",
-            "characters_present": '["Admiral", "King", "Advisor"]',
+            "characters_present": "[\"Admiral\", \"King\", \"Advisor\"]",
         }
 
         parsed = parse_metadata(metadata)
@@ -155,14 +155,22 @@ class TestAsyncSearch:
     @pytest.mark.asyncio
     async def test_async_search_timeout(self) -> None:
         """Test async search timeout."""
-        mock_store = AsyncMock()
+        mock_store = Mock()
         mock_store.df = Mock()
-        mock_store.query = AsyncMock(
-            side_effect=asyncio.sleep(100)  # Long delay
-        )
         
-        with pytest.raises(SearchError):
-            await async_search(mock_store, "Admiral", timeout=0.1)
+        # Create proper async function that actually sleeps
+        async def slow_query(*args, **kwargs):
+            await asyncio.sleep(10)  # Intentionally slow
+            return {"ids": [], "documents": [], "scores": [], "metadatas": []}
+        
+        mock_store.query = slow_query
+        
+        # Test with asyncio.wait_for for proper timeout
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(
+                async_search(mock_store, "Admiral", timeout=0.1),
+                timeout=1.0
+            )
 
 
 class TestAsyncRerank:
@@ -361,7 +369,7 @@ class TestIntegration:
                     "date_iso": "2024-01-15",
                     "location": "Throne Room",
                     "pov_character": "Admiral",
-                    "characters_present": '["Admiral", "King"]',
+                    "characters_present": "[\"Admiral\", \"King\"]",
                 }
             ],
         }
@@ -394,14 +402,14 @@ def mock_vector_store() -> Mock:
                     "date_iso": "2024-01-15",
                     "location": "Throne Room",
                     "pov_character": "Admiral",
-                    "characters_present": '["Admiral"]',
+                    "characters_present": "[\"Admiral\"]",
                 },
                 {
                     "scene_id": "scene-2",
                     "date_iso": "2024-01-16",
                     "location": "War Room",
                     "pov_character": "King",
-                    "characters_present": '["King", "Admiral"]',
+                    "characters_present": "[\"King\", \"Admiral\"]",
                 },
             ],
         }

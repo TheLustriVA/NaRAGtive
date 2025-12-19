@@ -72,18 +72,28 @@ class SearchInputWidget(Static):
     """
 
     BINDINGS = [
-        ("up", "history_back", "Previous"),
-        ("down", "history_forward", "Next"),
-        ("ctrl+u", "clear_input", "Clear"),
+        ("up", "action_history_back", "Previous"),
+        ("down", "action_history_forward", "Next"),
+        ("ctrl+u", "action_clear_input", "Clear"),
     ]
 
-    def __init__(self, search_history: list[str] | None = None) -> None:
+    def __init__(
+        self,
+        search_history: list[str] | None = None,
+        *,
+        name: str | None = None,
+        id: str | None = None,
+        classes: str | None = None,
+    ) -> None:
         """Initialize search input widget.
         
         Args:
             search_history: Optional list of previous searches
+            name: Name of widget
+            id: ID of widget
+            classes: CSS classes
         """
-        super().__init__()
+        super().__init__(name=name, id=id, classes=classes)
         self.search_history = search_history or []
         self.history_index: int | None = None
         self.input_widget: Input | None = None
