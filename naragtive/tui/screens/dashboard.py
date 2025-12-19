@@ -12,29 +12,14 @@ from naragtive.store_registry import StoreMetadata, VectorStoreRegistry
 from naragtive.tui.screens.base import BaseScreen
 from naragtive.tui.widgets import StoreListWidget
 from naragtive.tui.widgets.store_list import StorePressedMessage
+from naragtive.tui.screens.search import SearchScreen
 
 if TYPE_CHECKING:
     from naragtive.tui.app import NaRAGtiveApp
 
 
-class SearchScreenPlaceholder(BaseScreen):
-    """Placeholder for Search screen (Phase 2)."""
-
-    BINDINGS = [
-        ("escape", "back", "Back"),
-    ] + BaseScreen.BINDINGS
-
-    def compose(self) -> ComposeResult:
-        """Compose search screen.
-        
-        Yields:
-            Placeholder content widget
-        """
-        yield Static("Search Screen (Phase 2)", id="placeholder-content")
-
-
 class IngestScreenPlaceholder(BaseScreen):
-    """Placeholder for Ingest screen (Phase 2)."""
+    """Placeholder for Ingest screen (Phase 3)."""
 
     BINDINGS = [
         ("escape", "back", "Back"),
@@ -46,11 +31,11 @@ class IngestScreenPlaceholder(BaseScreen):
         Yields:
             Placeholder content widget
         """
-        yield Static("Ingest Screen (Phase 2)", id="placeholder-content")
+        yield Static("Ingest Screen (Phase 3)", id="placeholder-content")
 
 
 class ManageStoresScreenPlaceholder(BaseScreen):
-    """Placeholder for Manage Stores screen (Phase 2)."""
+    """Placeholder for Manage Stores screen (Phase 3)."""
 
     BINDINGS = [
         ("escape", "back", "Back"),
@@ -62,7 +47,7 @@ class ManageStoresScreenPlaceholder(BaseScreen):
         Yields:
             Placeholder content widget
         """
-        yield Static("Manage Stores Screen (Phase 2)", id="placeholder-content")
+        yield Static("Manage Stores Screen (Phase 3)", id="placeholder-content")
 
 
 class DashboardScreen(BaseScreen):
@@ -226,7 +211,7 @@ class DashboardScreen(BaseScreen):
 
     def action_search(self) -> None:
         """Open search screen."""
-        self.app.push_screen(SearchScreenPlaceholder())
+        self.app.push_screen(SearchScreen())
 
     def action_ingest(self) -> None:
         """Open ingest screen."""
