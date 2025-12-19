@@ -67,18 +67,30 @@ class ResultsTableWidget(DataTable):
     """
 
     BINDINGS = [
-        ("enter", "select_row", "View"),
-        ("r", "toggle_rerank", "Rerank"),
-        ("s", "cycle_sort", "Sort"),
+        ("enter", "action_select_row", "View"),
+        ("r", "action_toggle_rerank", "Rerank"),
+        ("s", "action_cycle_sort", "Sort"),
     ]
 
     results: reactive[list[dict[str, Any]]] = reactive([], recompose=False)
     current_sort: reactive[SortColumn] = reactive(SortColumn.RELEVANCE)
     results_count: reactive[int] = reactive(0)
 
-    def __init__(self) -> None:
-        """Initialize results table widget."""
-        super().__init__()
+    def __init__(
+        self,
+        *,
+        name: str | None = None,
+        id: str | None = None,
+        classes: str | None = None,
+    ) -> None:
+        """Initialize results table widget.
+        
+        Args:
+            name: Name of widget
+            id: ID of widget
+            classes: CSS classes
+        """
+        super().__init__(name=name, id=id, classes=classes)
         self._results_data: list[dict[str, Any]] = []
         self.cursor_type = "row"
         self.zebra_stripes = True

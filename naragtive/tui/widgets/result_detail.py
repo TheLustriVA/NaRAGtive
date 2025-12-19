@@ -65,14 +65,26 @@ class ResultDetailWidget(Static):
     """
 
     BINDINGS = [
-        ("q", "close", "Close"),
-        ("y", "copy_id", "Copy ID"),
-        ("c", "copy_text", "Copy Text"),
+        ("q", "action_close", "Close"),
+        ("y", "action_copy_id", "Copy ID"),
+        ("c", "action_copy_text", "Copy Text"),
     ]
 
-    def __init__(self) -> None:
-        """Initialize result detail widget."""
-        super().__init__()
+    def __init__(
+        self,
+        *,
+        name: str | None = None,
+        id: str | None = None,
+        classes: str | None = None,
+    ) -> None:
+        """Initialize result detail widget.
+        
+        Args:
+            name: Name of widget
+            id: ID of widget
+            classes: CSS classes
+        """
+        super().__init__(name=name, id=id, classes=classes)
         self.result_data: dict[str, Any] | None = None
 
     def compose(self) -> ComposeResult:
