@@ -165,17 +165,3 @@ Dialog {
 Dialog > Button {
     margin: 1;
 }
-
-/* Responsive adjustments */
-@media (max-height: 10) {
-    Header {
-        display: none;
-    }
-}
-
-@media (max-width: 50) {
-    .store-type,
-    .store-count {
-        display: none;
-    }
-}
