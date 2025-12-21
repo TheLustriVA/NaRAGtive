@@ -153,7 +153,7 @@ class SearchScreen(BaseScreen):
 
         # Footer
         yield Label(
-            "[/] Search  [r] Rerank  [e] Export  [esc] Back",
+            "/ Search  [r] Rerank  [e] Export  [esc] Back",
             id="search-footer",
         )
 
