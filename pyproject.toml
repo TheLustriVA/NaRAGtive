@@ -16,7 +16,8 @@ dependencies = [
     "transformers>=4.30.0",
     "torch>=2.0.0",
     "numpy==2.3.5",
-    "textual>=6.4.0,<7.0"
+    "textual>=6.4.0,<7.0",
+    "textual-dev>=1.8.0",
 ]
 [project.optional-dependencies]
 tui = ["textual>=6.4.0,<7.0"]
