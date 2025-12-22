@@ -361,6 +361,10 @@ class SearchInputScreen(Screen):
         callback: Callback function when search is submitted
     """
 
+    BINDINGS = [
+        ("escape", "dismiss", "Cancel"),
+    ]
+
     CSS = """
     SearchInputScreen {
         align: center middle;
@@ -399,9 +403,7 @@ class SearchInputScreen(Screen):
         with Container():
             yield SearchInputWidget(self.search_history)
 
-    def on_search_input_widget_search_requested(
-        self, message: SearchRequested
-    ) -> None:
+    def on_search_requested(self, message: SearchRequested) -> None:
         """Handle search request.
         
         Args:
@@ -410,4 +412,8 @@ class SearchInputScreen(Screen):
         # Call callback
         asyncio.create_task(self.callback(message.query))
         # Close modal
-        self.app.pop_screen()
+        self.dismiss()
+
+    def action_dismiss(self) -> None:
+        """Handle escape key to dismiss modal."""
+        self.dismiss()

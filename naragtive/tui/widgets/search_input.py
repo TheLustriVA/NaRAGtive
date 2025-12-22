@@ -41,6 +41,10 @@ class SearchInputWidget(Static):
         search_history: List of previous search queries
         history_index: Current position in history (None = new query)
     """
+    
+    # CRITICAL: Don't steal focus from Input widget
+    can_focus = False
+    can_focus_children = True
 
     CSS = """
     SearchInputWidget {
@@ -72,9 +76,9 @@ class SearchInputWidget(Static):
     """
 
     BINDINGS = [
-        ("up", "action_history_back", "Previous"),
-        ("down", "action_history_forward", "Next"),
-        ("ctrl+u", "action_clear_input", "Clear"),
+        ("up", "history_back", "Previous"),
+        ("down", "history_forward", "Next"),
+        ("ctrl+u", "clear_input", "Clear"),
     ]
 
     def __init__(
@@ -96,7 +100,6 @@ class SearchInputWidget(Static):
         super().__init__(name=name, id=id, classes=classes)
         self.search_history = search_history or []
         self.history_index: int | None = None
-        self.input_widget: Input | None = None
 
     def compose(self) -> ComposeResult:
         """Compose search input UI.
@@ -105,8 +108,7 @@ class SearchInputWidget(Static):
             Label, Input, and info widgets
         """
         yield Label("Enter search query:")
-        self.input_widget = Input(placeholder="e.g., Admiral leadership")
-        yield self.input_widget
+        yield Input(placeholder="e.g., Admiral leadership", id="search_input")
         
         if self.search_history:
             yield Static(
@@ -121,8 +123,8 @@ class SearchInputWidget(Static):
         
         Focuses the input field.
         """
-        if self.input_widget:
-            self.input_widget.focus()
+        input_widget = self.query_one("#search_input", Input)
+        input_widget.focus()
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         """Handle search input submission.
@@ -146,8 +148,10 @@ class SearchInputWidget(Static):
         
         Moves backward through search history, wrapping to end.
         """
-        if not self.search_history or not self.input_widget:
+        if not self.search_history:
             return
+        
+        input_widget = self.query_one("#search_input", Input)
         
         if self.history_index is None:
             # Start at beginning of history
@@ -157,16 +161,18 @@ class SearchInputWidget(Static):
             self.history_index = (self.history_index + 1) % len(self.search_history)
         
         # Update input with historical query
-        self.input_widget.value = self.search_history[self.history_index]
-        self.input_widget.cursor_position = len(self.input_widget.value)
+        input_widget.value = self.search_history[self.history_index]
+        input_widget.cursor_position = len(input_widget.value)
 
     def action_history_forward(self) -> None:
         """Navigate to next search in history.
         
         Moves forward through search history, wrapping to start.
         """
-        if not self.search_history or not self.input_widget:
+        if not self.search_history:
             return
+        
+        input_widget = self.query_one("#search_input", Input)
         
         if self.history_index is None:
             # Start at end of history
@@ -176,14 +182,14 @@ class SearchInputWidget(Static):
             self.history_index = (self.history_index - 1) % len(self.search_history)
         
         # Update input with historical query
-        self.input_widget.value = self.search_history[self.history_index]
-        self.input_widget.cursor_position = len(self.input_widget.value)
+        input_widget.value = self.search_history[self.history_index]
+        input_widget.cursor_position = len(input_widget.value)
 
     def action_clear_input(self) -> None:
         """Clear the input field."""
-        if self.input_widget:
-            self.input_widget.value = ""
-            self.history_index = None
+        input_widget = self.query_one("#search_input", Input)
+        input_widget.value = ""
+        self.history_index = None
 
     def get_history(self) -> list[str]:
         """Get current search history.
