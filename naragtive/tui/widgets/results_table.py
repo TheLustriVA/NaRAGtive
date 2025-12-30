@@ -46,6 +46,18 @@ class ResultSelected(Message):
         self.result_id = result_id
 
 
+class RerankRequested(Message):
+    """Posted when user requests reranking of results.
+    
+    Attributes:
+        results: Results to rerank
+    """
+
+    def __init__(self) -> None:
+        """Initialize rerank requested message."""
+        super().__init__()
+
+
 class ResultsTableWidget(DataTable):
     """DataTable widget displaying search results.
     
@@ -168,12 +180,6 @@ class ResultsTableWidget(DataTable):
 
         self.results_count = len(self._results_data)
 
-        # Show status
-        if self.results_count == 0:
-            self.post_message(
-                Static("No results found", id="results-status")
-            )
-
     def on_data_table_row_selected(
         self, event: DataTable.RowSelected
     ) -> None:
@@ -207,9 +213,10 @@ class ResultsTableWidget(DataTable):
     def action_toggle_rerank(self) -> None:
         """Trigger reranking action.
         
+        Posts RerankRequested message to parent screen.
         This is handled by parent screen.
         """
-        self.app.post_message(Static("Reranking..."))
+        self.post_message(RerankRequested())
 
     def action_cycle_sort(self) -> None:
         """Cycle through sort columns.
