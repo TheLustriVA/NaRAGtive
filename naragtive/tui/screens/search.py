@@ -25,6 +25,8 @@ from naragtive.tui.widgets import (
     ResultSelected,
     ResultDetailWidget,
 )
+from naragtive.tui.widgets.results_table import RerankRequested
+from naragtive.tui.widgets.result_detail import DetailPanelClosed
 from naragtive.tui.search_utils import (
     async_search,
     async_rerank,
@@ -293,6 +295,43 @@ class SearchScreen(BaseScreen):
                     "rerank_scores" if self.reranking_enabled else "scores", []
                 )[result_index],
             )
+
+    def on_rerank_requested(self, message: RerankRequested) -> None:
+        """Handle rerank request from ResultsTableWidget.
+        
+        This method is invoked when a RerankRequested message is posted.
+        Follows Textual's message handler naming convention:
+        on_<MessageClassName> (converted to snake_case)
+        
+        Args:
+            message: Rerank requested message
+        """
+        if not self.search_results:
+            self.app.notify("No results to rerank", severity="warning", timeout=3)
+            return
+
+        self.reranking_enabled = not self.reranking_enabled
+        status = self.query_one("#search-status", Label)
+        status.update(
+            f"Reranking: {'ENABLED' if self.reranking_enabled else 'DISABLED'}"
+        )
+        self.app.notify(
+            f"Reranking {'enabled' if self.reranking_enabled else 'disabled'}",
+            timeout=3,
+        )
+
+    def on_detail_panel_closed(self, message: DetailPanelClosed) -> None:
+        """Handle detail panel close request.
+        
+        This method is invoked when a DetailPanelClosed message is posted.
+        Follows Textual's message handler naming convention:
+        on_<MessageClassName> (converted to snake_case)
+        
+        Args:
+            message: Detail panel closed message
+        """
+        # Could implement clearing or navigation logic here if needed
+        pass
 
     def action_toggle_rerank(self) -> None:
         """Toggle reranking mode.
