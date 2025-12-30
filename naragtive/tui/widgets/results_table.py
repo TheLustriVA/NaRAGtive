@@ -67,9 +67,9 @@ class ResultsTableWidget(DataTable):
     """
 
     BINDINGS = [
-        ("enter", "action_select_row", "View"),
-        ("r", "action_toggle_rerank", "Rerank"),
-        ("s", "action_cycle_sort", "Sort"),
+        ("enter", "select_row", "View"),
+        ("r", "toggle_rerank", "Rerank"),
+        ("s", "cycle_sort", "Sort"),
     ]
 
     results: reactive[list[dict[str, Any]]] = reactive([], recompose=False)
