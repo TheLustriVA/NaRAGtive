@@ -199,10 +199,12 @@ class DashboardScreen(BaseScreen):
         info_widget = self.query_one("#store-info", Label)
         info_widget.update(info_text)
 
-    def on_store_list_widget_store_pressed_message(
-        self, message: StorePressedMessage
-    ) -> None:
+    def on_store_pressed_message(self, message: StorePressedMessage) -> None:
         """Handle store selection.
+        
+        This method is invoked when a StorePressedMessage is posted.
+        Follows Textual's message handler naming convention:
+        on_<MessageClassName> (converted to snake_case)
         
         Args:
             message: Store pressed message containing store name
