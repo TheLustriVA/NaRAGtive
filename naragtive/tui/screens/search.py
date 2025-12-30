@@ -258,19 +258,29 @@ class SearchScreen(BaseScreen):
                 timeout=5,
             )
 
-    def on_results_table_widget_result_selected(
+    def on_result_selected(
         self, message: ResultSelected
     ) -> None:
-        """Handle result selection.
+        """Handle result selection from ResultsTableWidget.
+        
+        This method is invoked when a ResultSelected message is posted.
+        Follows Textual's message handler naming convention:
+        on_<MessageClassName> (converted to snake_case)
         
         Args:
-            message: Result selected message
+            message: Result selected message containing result_index and result_id
         """
         if not self.search_results:
             return
 
         results = self.search_results
         result_index = message.result_index
+
+        # Debug logging
+        self.app.notify(
+            f"DEBUG: Result selected - Index: {result_index}, ID: {message.result_id}",
+            timeout=2,
+        )
 
         # Get result data
         if result_index < len(results["ids"]):
