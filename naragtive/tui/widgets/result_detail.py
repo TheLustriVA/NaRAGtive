@@ -10,8 +10,17 @@ from rich.text import Text
 from textual.app import ComposeResult
 from textual.containers import Vertical, Horizontal
 from textual.widgets import Static, TextArea, Label
+from textual.message import Message
 
 from naragtive.tui.search_utils import parse_metadata
+
+
+class DetailPanelClosed(Message):
+    """Posted when user closes detail panel."""
+
+    def __init__(self) -> None:
+        """Initialize detail panel closed message."""
+        super().__init__()
 
 
 class ResultDetailWidget(Static):
@@ -170,8 +179,11 @@ class ResultDetailWidget(Static):
         content.update(document_text)
 
     def action_close(self) -> None:
-        """Close detail panel (handled by parent)."""
-        self.post_message(Static("Close detail view"))
+        """Close detail panel.
+        
+        Posts DetailPanelClosed message to parent screen.
+        """
+        self.post_message(DetailPanelClosed())
 
     def action_copy_id(self) -> None:
         """Copy scene ID to clipboard."""
