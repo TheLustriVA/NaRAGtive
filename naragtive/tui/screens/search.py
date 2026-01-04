@@ -287,13 +287,18 @@ class SearchScreen(BaseScreen):
         # Get result data
         if result_index < len(results["ids"]):
             detail_panel = self.query_one("#detail-panel", ResultDetailWidget)
+            
+            # Get score with bounds checking
+            score_array = results.get(
+                "rerank_scores" if self.reranking_enabled else "scores", []
+            )
+            score = score_array[result_index] if result_index < len(score_array) else 0.0
+            
             detail_panel.display_result(
                 results["ids"][result_index],
                 results["documents"][result_index],
                 results["metadatas"][result_index],
-                results.get(
-                    "rerank_scores" if self.reranking_enabled else "scores", []
-                )[result_index],
+                score,
             )
 
     def on_rerank_requested(self, message: RerankRequested) -> None:
@@ -359,6 +364,11 @@ class SearchScreen(BaseScreen):
             return
 
         try:
+            # Get score array with bounds checking
+            score_array = self.search_results.get(
+                "rerank_scores" if self.reranking_enabled else "scores", []
+            )
+            
             # Create export data
             export_data = {
                 "query": self.current_query,
@@ -368,19 +378,13 @@ class SearchScreen(BaseScreen):
                 "results": [
                     {
                         "scene_id": scene_id,
-                        "score": score,
+                        "score": score_array[i] if i < len(score_array) else 0.0,
                         "metadata": metadata,
                     }
-                    for scene_id, score, metadata in zip(
+                    for i, (scene_id, metadata) in enumerate(zip(
                         self.search_results["ids"],
-                        self.search_results.get(
-                            "rerank_scores"
-                            if self.reranking_enabled
-                            else "scores",
-                            [],
-                        ),
                         self.search_results["metadatas"],
-                    )
+                    ))
                 ],
             }
 
