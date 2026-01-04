@@ -284,17 +284,43 @@ class SearchScreen(BaseScreen):
             timeout=2,
         )
 
-        # Get result data
-        if result_index < len(results["ids"]):
-            detail_panel = self.query_one("#detail-panel", ResultDetailWidget)
-            detail_panel.display_result(
-                results["ids"][result_index],
-                results["documents"][result_index],
-                results["metadatas"][result_index],
-                results.get(
-                    "rerank_scores" if self.reranking_enabled else "scores", []
-                )[result_index],
+        # Get result data with proper bounds checking
+        if result_index >= len(results["ids"]):
+            self.app.notify(
+                "Invalid result index",
+                severity="error",
+                timeout=3,
             )
+            return
+
+        # Get the appropriate score list based on reranking state
+        # FIXED: Use conditional fallback, not just dict.get() fallback
+        scores = (
+            results.get("rerank_scores", [])
+            if self.reranking_enabled
+            else results.get("scores", [])
+        )
+
+        # Safely access score
+        if result_index < len(scores):
+            score = scores[result_index]
+        else:
+            self.app.notify(
+                "Score data unavailable for this result",
+                severity="warning",
+                timeout=3,
+            )
+            score = None
+
+        # Display result in detail panel
+        detail_panel = self.query_one("#detail-panel", ResultDetailWidget)
+        detail_panel.display_result(
+            results["ids"][result_index],
+            results["documents"][result_index],
+            results["metadatas"][result_index],
+            score,
+        )
+
 
     def on_rerank_requested(self, message: RerankRequested) -> None:
         """Handle rerank request from ResultsTableWidget.
