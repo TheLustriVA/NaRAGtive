@@ -13,6 +13,8 @@ from naragtive.tui.screens.base import BaseScreen
 from naragtive.tui.widgets import StoreListWidget
 from naragtive.tui.widgets.store_list import StorePressedMessage
 from naragtive.tui.screens.search import SearchScreen
+from naragtive.tui.screens.statistics import StatisticsScreen
+from naragtive.tui.screens.search_interactive import InteractiveSearchScreen
 
 if TYPE_CHECKING:
     from naragtive.tui.app import NaRAGtiveApp
@@ -56,6 +58,14 @@ class DashboardScreen(BaseScreen):
     Displays all registered stores with metadata and provides quick access
     to search, ingest, and store management functions.
     
+    Key bindings:
+        's': Open search screen
+        'i': Open statistics screen
+        'alt+i': Open interactive search mode
+        'm': Open manage stores screen
+        'r': Refresh store list
+        'enter': Set selected store as default
+    
     Attributes:
         stores: List of registered stores
         selected_store: Currently selected store name
@@ -64,7 +74,8 @@ class DashboardScreen(BaseScreen):
 
     BINDINGS = [
         ("s", "search", "Search"),
-        ("i", "ingest", "Ingest"),
+        ("i", "statistics", "Statistics"),
+        ("alt+i", "interactive_search", "Interactive"),
         ("m", "manage", "Manage"),
         ("r", "refresh", "Refresh"),
         ("enter", "set_default", "Set Default"),
@@ -147,7 +158,8 @@ class DashboardScreen(BaseScreen):
             # Action buttons
             with Horizontal(id="action-buttons"):
                 yield Button("Search (s)", id="btn-search", variant="primary")
-                yield Button("Ingest (i)", id="btn-ingest", variant="primary")
+                yield Button("Stats (i)", id="btn-stats", variant="primary")
+                yield Button("Interactive (alt+i)", id="btn-interactive", variant="primary")
                 yield Button("Manage (m)", id="btn-manage", variant="default")
                 yield Button("Refresh (r)", id="btn-refresh", variant="default")
 
@@ -212,26 +224,30 @@ class DashboardScreen(BaseScreen):
         self.selected_store = message.store_name
 
     def action_search(self) -> None:
-        """Open search screen."""
+        """Action to open search screen."""
         self.app.push_screen(SearchScreen())
 
-    def action_ingest(self) -> None:
-        """Open ingest screen."""
-        self.app.push_screen(IngestScreenPlaceholder())
+    def action_statistics(self) -> None:
+        """Action to open statistics screen."""
+        self.app.push_screen(StatisticsScreen())
+
+    def action_interactive_search(self) -> None:
+        """Action to open interactive search mode."""
+        self.app.push_screen(InteractiveSearchScreen())
 
     def action_manage(self) -> None:
-        """Open manage stores screen."""
+        """Action to open manage stores screen."""
         self.app.push_screen(ManageStoresScreenPlaceholder())
 
     def action_refresh(self) -> None:
-        """Refresh store list.
+        """Action to refresh store list.
         
         Schedules an async store refresh for the next event loop iteration.
         """
         self.call_later(self._load_stores)
 
     def action_set_default(self) -> None:
-        """Set selected store as default.
+        """Action to set selected store as default.
         
         Uses run_in_executor to avoid blocking the event loop.
         """
@@ -270,8 +286,10 @@ class DashboardScreen(BaseScreen):
         button_id = event.button.id
         if button_id == "btn-search":
             self.action_search()
-        elif button_id == "btn-ingest":
-            self.action_ingest()
+        elif button_id == "btn-stats":
+            self.action_statistics()
+        elif button_id == "btn-interactive":
+            self.action_interactive_search()
         elif button_id == "btn-manage":
             self.action_manage()
         elif button_id == "btn-refresh":
