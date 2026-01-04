@@ -1,25 +1,26 @@
 """Reusable dialog widgets for NaRAGtive TUI.
 
-Provides ConfirmDialog and InfoDialog for common user interactions.
+Provides ConfirmDialog, InfoDialog, and other modal dialogs.
 """
 
-from typing import Optional
+from typing import Optional, Callable
+
 from textual.app import ComposeResult
-from textual.containers import Container
+from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
-from textual.widgets import Button, Label
+from textual.widgets import Button, Label, Static
 
 
 class ConfirmDialog(ModalScreen[bool]):
-    """Confirmation dialog that returns True (confirm) or False (cancel).
+    """Confirmation dialog that returns True/False.
 
-    A modal dialog for confirmation prompts. User can press:
-    - Enter or click 'Confirm' to return True
-    - Escape or click 'Cancel' to return False
+    Allows user to confirm or cancel an action.
 
     Attributes:
         title: Dialog title
         message: Confirmation message
+        confirm_text: Text for confirm button (default: "Confirm")
+        cancel_text: Text for cancel button (default: "Cancel")
     """
 
     CSS = """
@@ -27,7 +28,7 @@ class ConfirmDialog(ModalScreen[bool]):
         align: center middle;
     }
 
-    #dialog-container {
+    #confirm-dialog {
         width: 60;
         height: auto;
         border: solid $accent;
@@ -35,26 +36,29 @@ class ConfirmDialog(ModalScreen[bool]):
         padding: 1 2;
     }
 
-    #dialog-message {
+    #confirm-title {
         width: 100%;
+        height: auto;
+        text-style: bold;
+        color: $accent;
         margin-bottom: 1;
-        text-align: left;
     }
 
-    #dialog-buttons {
+    #confirm-message {
+        width: 100%;
+        height: auto;
+        margin-bottom: 2;
+    }
+
+    #confirm-buttons {
         width: 100%;
         height: auto;
         layout: horizontal;
-        dock: bottom;
+        align: right middle;
     }
 
-    #dialog-buttons Button {
-        flex: 1;
-        margin-right: 1;
-    }
-
-    #dialog-buttons Button:last-child {
-        margin-right: 0;
+    #confirm-buttons Button {
+        margin: 0 1;
     }
     """
 
@@ -65,36 +69,40 @@ class ConfirmDialog(ModalScreen[bool]):
         confirm_text: str = "Confirm",
         cancel_text: str = "Cancel",
     ) -> None:
-        """Initialize confirmation dialog.
+        """Initialize confirm dialog.
 
         Args:
             title: Dialog title
             message: Confirmation message
-            confirm_text: Text for confirm button. Default: "Confirm"
-            cancel_text: Text for cancel button. Default: "Cancel"
+            confirm_text: Text for confirm button
+            cancel_text: Text for cancel button
         """
         super().__init__()
-        self.dialog_title = title
-        self.dialog_message = message
-        self.confirm_text = confirm_text
-        self.cancel_text = cancel_text
+        self.title_text = title
+        self.message_text = message
+        self.confirm_button_text = confirm_text
+        self.cancel_button_text = cancel_text
 
     def compose(self) -> ComposeResult:
         """Compose dialog UI.
 
         Yields:
-            Container with message and button widgets
+            Dialog container with title, message, and buttons
         """
-        with Container(id="dialog-container"):
-            yield Label(self.dialog_message, id="dialog-message")
-            with Container(id="dialog-buttons"):
-                yield Button(self.confirm_text, id="confirm-btn", variant="primary")
-                yield Button(self.cancel_text, id="cancel-btn", variant="default")
-
-    def on_mount(self) -> None:
-        """Set title and focus confirm button on mount."""
-        self.title = self.dialog_title
-        self.query_one("#confirm-btn", Button).focus()
+        with Vertical(id="confirm-dialog"):
+            yield Label(self.title_text, id="confirm-title")
+            yield Label(self.message_text, id="confirm-message")
+            with Horizontal(id="confirm-buttons"):
+                yield Button(
+                    self.cancel_button_text,
+                    id="btn-cancel",
+                    variant="default",
+                )
+                yield Button(
+                    self.confirm_button_text,
+                    id="btn-confirm",
+                    variant="primary",
+                )
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle button presses.
@@ -102,30 +110,22 @@ class ConfirmDialog(ModalScreen[bool]):
         Args:
             event: Button pressed event
         """
-        if event.button.id == "confirm-btn":
+        button_id = event.button.id
+        if button_id == "btn-confirm":
             self.dismiss(True)
-        elif event.button.id == "cancel-btn":
+        elif button_id == "btn-cancel":
             self.dismiss(False)
-
-    def action_dismiss_confirm(self) -> None:
-        """Action to dismiss as confirmed (triggered by Enter)."""
-        self.dismiss(True)
-
-    def action_dismiss_cancel(self) -> None:
-        """Action to dismiss as cancelled (triggered by Escape)."""
-        self.dismiss(False)
 
 
 class InfoDialog(ModalScreen[None]):
-    """Information display dialog.
+    """Information dialog for displaying messages.
 
-    A modal dialog for displaying information. User can press:
-    - Enter or click 'OK' to close
-    - Escape to close
+    Provides a modal dialog to show information with an OK button.
 
     Attributes:
         title: Dialog title
         message: Information message
+        ok_text: Text for OK button (default: "OK")
     """
 
     CSS = """
@@ -133,30 +133,32 @@ class InfoDialog(ModalScreen[None]):
         align: center middle;
     }
 
-    #info-container {
-        width: 70;
+    #info-dialog {
+        width: 60;
         height: auto;
         border: solid $accent;
         background: $surface;
         padding: 1 2;
     }
 
+    #info-title {
+        width: 100%;
+        height: auto;
+        text-style: bold;
+        color: $accent;
+        margin-bottom: 1;
+    }
+
     #info-message {
         width: 100%;
-        margin-bottom: 1;
-        text-align: left;
         height: auto;
+        margin-bottom: 2;
     }
 
     #info-buttons {
         width: 100%;
         height: auto;
-        layout: horizontal;
-        dock: bottom;
-    }
-
-    #info-buttons Button {
-        width: 100%;
+        align: center middle;
     }
     """
 
@@ -171,38 +173,34 @@ class InfoDialog(ModalScreen[None]):
         Args:
             title: Dialog title
             message: Information message
-            ok_text: Text for OK button. Default: "OK"
+            ok_text: Text for OK button
         """
         super().__init__()
-        self.info_title = title
-        self.info_message = message
-        self.ok_text = ok_text
+        self.title_text = title
+        self.message_text = message
+        self.ok_button_text = ok_text
 
     def compose(self) -> ComposeResult:
         """Compose dialog UI.
 
         Yields:
-            Container with message and OK button
+            Dialog container with title, message, and OK button
         """
-        with Container(id="info-container"):
-            yield Label(self.info_message, id="info-message")
-            with Container(id="info-buttons"):
-                yield Button(self.ok_text, id="ok-btn", variant="primary")
-
-    def on_mount(self) -> None:
-        """Set title and focus OK button on mount."""
-        self.title = self.info_title
-        self.query_one("#ok-btn", Button).focus()
+        with Vertical(id="info-dialog"):
+            yield Label(self.title_text, id="info-title")
+            yield Label(self.message_text, id="info-message")
+            with Horizontal(id="info-buttons"):
+                yield Button(
+                    self.ok_button_text,
+                    id="btn-ok",
+                    variant="primary",
+                )
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        """Handle button press.
+        """Handle button presses.
 
         Args:
             event: Button pressed event
         """
-        if event.button.id == "ok-btn":
+        if event.button.id == "btn-ok":
             self.dismiss()
-
-    def action_dismiss_ok(self) -> None:
-        """Action to dismiss (triggered by Enter or Escape)."""
-        self.dismiss()
