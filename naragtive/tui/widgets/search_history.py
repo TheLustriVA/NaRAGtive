@@ -3,7 +3,7 @@
 Displays list of recent search queries for navigation with arrow keys.
 """
 
-from typing import Optional
+from typing import Any, Optional
 from textual.app import ComposeResult
 from textual.containers import Container
 from textual.reactive import reactive
@@ -64,13 +64,14 @@ class SearchHistory(Static):
     history: reactive[list[str]] = reactive([])
     current_index: reactive[int] = reactive(-1)
 
-    def __init__(self, max_items: int = 5) -> None:
+    def __init__(self, max_items: int = 5, **kwargs: Any) -> None:
         """Initialize search history.
 
         Args:
             max_items: Maximum number of items to show. Default: 5
+            **kwargs: Additional widget arguments (id, classes, etc.)
         """
-        super().__init__()
+        super().__init__(**kwargs)
         self.max_items = max_items
         self.history = []
         self.current_index = -1
@@ -174,7 +175,7 @@ class SearchHistory(Static):
             for i, query in enumerate(self.history):
                 is_selected = i == self.current_index
                 classes = "history-item selected" if is_selected else "history-item unselected"
-                marker = "► " if is_selected else "  "
+                marker = "▶ " if is_selected else "  "
                 items_container.mount(
                     Label(f"{marker}{query}", classes=classes)
                 )
