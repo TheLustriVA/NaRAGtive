@@ -1,39 +1,37 @@
-"""Store management screen for NaRAGtive TUI.
+"""Store manager screen for NaRAGtive TUI.
 
-Provides UI for managing registered vector stores including viewing,
-creating, deleting, and setting default store.
+Provides interface to view, create, and delete vector stores.
 """
 
-from pathlib import Path
-from datetime import datetime
+import asyncio
 from typing import Optional
 
-from rich.text import Text
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Container, Horizontal, Vertical
+from textual.containers import Container, Vertical, Horizontal
 from textual.screen import Screen
-from textual.widgets import Button, DataTable, Footer, Header, Label, Static
+from textual.widgets import Footer, Header, Button, DataTable, Static, Label, Input
+from rich.text import Text
 
 from naragtive.store_registry import VectorStoreRegistry
 from naragtive.tui.widgets.dialogs import ConfirmDialog, InfoDialog
-from naragtive.tui.widgets.store_form import StoreForm
+from naragtive.tui.widgets.store_form import PathValidator
 
 
 class StoreManagerScreen(Screen[None]):
     """Screen for managing vector stores.
 
-    Displays list of registered stores and provides actions to:
-    - View store details (name, type, records, created date)
+    Features:
+    - View all stores with metadata
     - Create new store
-    - Delete store (with confirmation)
-    - Set default store (keystroke 's')
+    - Delete store with confirmation
+    - Set default store
 
     Key bindings:
         'n': New store
         'd': Delete selected store
-        's': Set selected as default
-        'Escape': Return to dashboard
+        's': Set as default
+        'Escape': Exit to dashboard
 
     Attributes:
         TITLE: Screen title
@@ -43,10 +41,10 @@ class StoreManagerScreen(Screen[None]):
     TITLE = "Store Manager"
 
     BINDINGS = [
-        Binding("n", "new_store", "New Store", show=True),
+        Binding("escape", "dismiss", "Exit", show=True),
+        Binding("n", "new_store", "New", show=True),
         Binding("d", "delete_store", "Delete", show=True),
         Binding("s", "set_default", "Set Default", show=True),
-        Binding("escape", "dismiss", "Back", show=True),
     ]
 
     CSS = """
@@ -54,33 +52,24 @@ class StoreManagerScreen(Screen[None]):
         layout: vertical;
     }
 
-    #store-table {
+    #manager-header {
+        width: 100%;
+        height: auto;
+        padding: 1 2;
+        border-bottom: solid $accent;
+    }
+
+    #stores-table {
         width: 100%;
         height: 1fr;
     }
 
-    #store-info {
+    #manager-status {
         width: 100%;
-        height: auto;
-        border-top: solid $accent;
-        padding: 1;
-        background: $surface;
-    }
-
-    #button-bar {
-        width: 100%;
-        height: auto;
+        height: 1;
         dock: bottom;
-        layout: horizontal;
-    }
-
-    #button-bar Button {
-        flex: 1;
-        margin-right: 1;
-    }
-
-    #button-bar Button:last-child {
-        margin-right: 0;
+        padding: 0 2;
+        background: $surface;
     }
     """
 
@@ -88,216 +77,161 @@ class StoreManagerScreen(Screen[None]):
         """Initialize store manager screen."""
         super().__init__()
         self.registry = VectorStoreRegistry()
-        self._current_form: Optional[StoreForm] = None
+        self.selected_row: Optional[int] = None
 
     def compose(self) -> ComposeResult:
         """Compose screen UI.
 
         Yields:
-            Header, DataTable showing stores, info panel, and button bar
+            Header, table, status bar, Footer
         """
         yield Header()
-
-        with Vertical():
-            yield DataTable(id="store-table", show_header=True, show_cursor=True)
-            yield Label("", id="store-info")
-
-        with Horizontal(id="button-bar"):
-            yield Button("New", id="new-btn", variant="primary")
-            yield Button("Delete", id="delete-btn", variant="warning")
-            yield Button("Set Default", id="default-btn", variant="accent")
-            yield Button("Back", id="back-btn", variant="default")
-
+        yield Label(
+            "Vector Stores - Press 'n' to create new, 'd' to delete, 's' to set default",
+            id="manager-header",
+        )
+        yield DataTable(id="stores-table", show_header=True, show_cursor=True)
+        yield Label("", id="manager-status")
         yield Footer()
 
     def on_mount(self) -> None:
-        """Initialize table and load stores on mount."""
-        table = self.query_one("#store-table", DataTable)
-        table.add_columns(
-            "Store Name", "Type", "Records", "Created", "Description"
-        )
-        self._refresh_stores()
-        table.focus()
+        """Initialize on mount."""
+        self.load_worker(self._load_stores())
 
-    def on_data_table_row_selected(
-        self, event: DataTable.RowSelected
+    def action_dismiss(self) -> None:
+        """Action to exit to dashboard."""
+        self.dismiss()
+
+    def action_new_store(self) -> None:
+        """Action to create new store."""
+        # For now, show info dialog
+        # In full implementation, would show form
+        self.app.push_screen(
+            InfoDialog(
+                "New Store",
+                "Store creation form (Phase 3 TODO)",
+            )
+        )
+
+    def action_delete_store(self) -> None:
+        """Action to delete selected store."""
+        if self.selected_row is None:
+            self._update_status("[error]No store selected[/error]")
+            return
+
+        table = self.query_one("#stores-table", DataTable)
+        try:
+            # Get store name from first column
+            store_name = table.get_cell(self.selected_row, 0)
+
+            def on_confirm(confirmed: bool) -> None:
+                if confirmed:
+                    self.call_later(self._delete_store, store_name)
+
+            self.app.push_screen(
+                ConfirmDialog(
+                    "Delete Store",
+                    f"Delete store '{store_name}'? This cannot be undone.",
+                    confirm_text="Delete",
+                    cancel_text="Cancel",
+                ),
+                on_confirm,
+            )
+        except Exception as e:
+            self._update_status(f"[error]Error: {str(e)}[/error]")
+
+    def action_set_default(self) -> None:
+        """Action to set selected store as default."""
+        if self.selected_row is None:
+            self._update_status("[error]No store selected[/error]")
+            return
+
+        table = self.query_one("#stores-table", DataTable)
+        try:
+            store_name = table.get_cell(self.selected_row, 0)
+            self.call_later(self._set_default, store_name)
+        except Exception as e:
+            self._update_status(f"[error]Error: {str(e)}[/error]")
+
+    async def _load_stores(self) -> None:
+        """Load stores from registry."""
+        try:
+            loop = asyncio.get_event_loop()
+            stores = await loop.run_in_executor(None, self.registry.list_stores)
+            default = await loop.run_in_executor(None, self.registry.get_default)
+
+            self._populate_table(stores, default)
+            self._update_status(f"Loaded {len(stores)} store(s)")
+        except Exception as e:
+            self._update_status(f"[error]Error loading stores: {str(e)}[/error]")
+
+    def _populate_table(
+        self, stores: list, default: Optional[str] = None
     ) -> None:
-        """Handle store selection in table.
+        """Populate stores table.
+
+        Args:
+            stores: List of store metadata
+            default: Name of default store
+        """
+        table = self.query_one("#stores-table", DataTable)
+        table.clear()
+        table.add_columns("Name", "Type", "Records", "Created", "Default")
+
+        for store in stores:
+            is_default = "✓" if store.name == default else ""
+            table.add_row(
+                store.name,
+                store.source_type,
+                str(store.record_count),
+                str(store.created_at.date()) if store.created_at else "N/A",
+                is_default,
+            )
+
+    async def _delete_store(self, store_name: str) -> None:
+        """Delete a store.
+
+        Args:
+            store_name: Name of store to delete
+        """
+        try:
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, self.registry.delete, store_name)
+            self._update_status(f"Deleted store: {store_name}")
+            await self._load_stores()
+        except Exception as e:
+            self._update_status(f"[error]Delete failed: {str(e)}[/error]")
+
+    async def _set_default(self, store_name: str) -> None:
+        """Set store as default.
+
+        Args:
+            store_name: Name of store to set as default
+        """
+        try:
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, self.registry.set_default, store_name)
+            self._update_status(f"Default store set to: {store_name}")
+            await self._load_stores()
+        except Exception as e:
+            self._update_status(f"[error]Error: {str(e)}[/error]")
+
+    def on_data_table_row_selected(self, event) -> None:
+        """Handle row selection.
 
         Args:
             event: Row selected event
         """
-        self._update_info_panel()
+        self.selected_row = event.cursor_row
 
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        """Handle button presses.
+    def _update_status(self, message: str) -> None:
+        """Update status bar.
 
         Args:
-            event: Button pressed event
+            message: Status message (supports markup)
         """
-        if event.button.id == "new-btn":
-            self.action_new_store()
-        elif event.button.id == "delete-btn":
-            self.action_delete_store()
-        elif event.button.id == "default-btn":
-            self.action_set_default()
-        elif event.button.id == "back-btn":
-            self.action_dismiss()
-
-    def action_new_store(self) -> None:
-        """Action to create new store."""
-        def on_store_created(msg: StoreForm.StoreCreated) -> None:
-            """Handle store creation.
-
-            Args:
-                msg: Store created message
-            """
-            try:
-                path = Path(msg.path).expanduser().resolve()
-                self.registry.register(
-                    name=msg.name,
-                    path=path,
-                    source_type=msg.source_type,
-                )
-                self._refresh_stores()
-                self.post_message(
-                    InfoDialog(
-                        "Success",
-                        f"Store '{msg.name}' created successfully!",
-                    )
-                )
-            except Exception as e:
-                self.post_message(
-                    InfoDialog(
-                        "Error",
-                        f"Failed to create store: {str(e)}",
-                    )
-                )
-
-        def on_cancel() -> None:
-            """Handle form cancellation."""
-            self.pop_screen()
-
-        form = StoreForm()
-        self._current_form = form
-        self.push_screen(form)
-
-    def action_delete_store(self) -> None:
-        """Action to delete selected store."""
-        table = self.query_one("#store-table", DataTable)
-        if table.row_count == 0:
-            self.notify("No stores to delete", severity="error")
-            return
-
         try:
-            cursor_row = table.cursor_row
-            stores = self.registry.list_stores()
-            if cursor_row >= len(stores):
-                return
-
-            store = stores[cursor_row]
-
-            def confirm_delete(result: bool) -> None:
-                """Confirm deletion.
-
-                Args:
-                    result: True if user confirmed
-                """
-                if result:
-                    try:
-                        self.registry.delete(store.name)
-                        self._refresh_stores()
-                        self.notify(
-                            f"Store '{store.name}' deleted",
-                            severity="warning",
-                        )
-                    except Exception as e:
-                        self.notify(f"Delete failed: {str(e)}", severity="error")
-
-            dialog = ConfirmDialog(
-                "Delete Store",
-                f"Delete '{store.name}'? This cannot be undone.",
-                confirm_text="Delete",
-                cancel_text="Cancel",
-            )
-            self.push_screen(dialog, confirm_delete)
-        except Exception as e:
-            self.notify(f"Error: {str(e)}", severity="error")
-
-    def action_set_default(self) -> None:
-        """Action to set selected store as default."""
-        table = self.query_one("#store-table", DataTable)
-        if table.row_count == 0:
-            self.notify("No stores available", severity="error")
-            return
-
-        try:
-            cursor_row = table.cursor_row
-            stores = self.registry.list_stores()
-            if cursor_row >= len(stores):
-                return
-
-            store = stores[cursor_row]
-            self.registry.set_default(store.name)
-            self._refresh_stores()
-            self.notify(f"Default store set to '{store.name}'")
-        except Exception as e:
-            self.notify(f"Error: {str(e)}", severity="error")
-
-    def action_dismiss(self) -> None:
-        """Action to return to dashboard."""
-        self.dismiss()
-
-    def _refresh_stores(self) -> None:
-        """Reload stores from registry and update table."""
-        table = self.query_one("#store-table", DataTable)
-        table.clear()
-
-        try:
-            stores = self.registry.list_stores()
-            default = self.registry.get_default()
-
-            for store in stores:
-                marker = "⭐ " if store.name == default else ""
-                created_date = store.created_at.split("T")[0]
-
-                table.add_row(
-                    f"{marker}{store.name}",
-                    store.source_type,
-                    str(store.record_count),
-                    created_date,
-                    store.description or "-",
-                )
-
-            if stores:
-                self._update_info_panel()
-        except Exception as e:
-            self.notify(f"Failed to load stores: {str(e)}", severity="error")
-
-    def _update_info_panel(self) -> None:
-        """Update info panel with selected store details."""
-        table = self.query_one("#store-table", DataTable)
-        info = self.query_one("#store-info", Label)
-
-        try:
-            if table.row_count == 0:
-                info.update("No stores registered")
-                return
-
-            cursor_row = table.cursor_row
-            stores = self.registry.list_stores()
-            if cursor_row >= len(stores):
-                return
-
-            store = stores[cursor_row]
-            is_default = "⭐ YES" if store.name == self.registry.get_default() else "-"
-
-            info_text = (
-                f"Store: [bold]{store.name}[/bold]  "
-                f"Type: {store.source_type}  "
-                f"Records: {store.record_count}  "
-                f"Default: {is_default}"
-            )
-            info.update(Text.from_markup(info_text))
+            status = self.query_one("#manager-status", Label)
+            status.update(Text.from_markup(message))
         except Exception:
             pass
