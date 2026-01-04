@@ -131,7 +131,7 @@ class InteractiveSearchScreen(Screen[None]):
 
     def on_mount(self) -> None:
         """Initialize on mount."""
-        self.load_worker(self._init_store())
+        self.run_worker(self._init_store())
         self.query_one("#search-input", Input).focus()
         self.query_one("#filter-panel", FilterPanel).display = False
         self._setup_table()
@@ -212,7 +212,6 @@ class InteractiveSearchScreen(Screen[None]):
                 self._update_status("[error]Store not found[/error]")
                 return
 
-            # Load store in executor
             loop = asyncio.get_event_loop()
             self.store = await loop.run_in_executor(
                 None, lambda: PolarsVectorStore(str(metadata.path))
@@ -238,15 +237,12 @@ class InteractiveSearchScreen(Screen[None]):
         self._update_status("Searching...")
 
         try:
-            # Execute search
             results = await async_search(self.store, query, n_results=50)
             self.current_results = results
 
-            # Add to history
             history = self.query_one("#history-widget", SearchHistory)
             history.add_query(query)
 
-            # Apply filters
             self._apply_filters()
 
         except Exception as e:
@@ -259,7 +255,6 @@ class InteractiveSearchScreen(Screen[None]):
         filter_panel = self.query_one("#filter-panel", FilterPanel)
         filters = filter_panel.get_filters()
 
-        # Apply filters
         filtered = apply_filters(
             self.current_results,
             location=filters["location"],
@@ -268,12 +263,10 @@ class InteractiveSearchScreen(Screen[None]):
             character=filters["character"],
         )
 
-        # Update result count display
         total = len(self.current_results.get("ids", []))
         filtered_count = len(filtered.get("ids", []))
         filter_panel.set_result_counts(total, filtered_count)
 
-        # Update table
         self._update_results_table(filtered)
         self._update_status(
             f"Results: {filtered_count} of {total}"
@@ -293,10 +286,8 @@ class InteractiveSearchScreen(Screen[None]):
             metadata = results["metadatas"][i]
             document = results["documents"][i]
 
-            # Parse metadata
             parsed = parse_metadata(metadata)
 
-            # Format preview
             preview = document[:50] + "..." if len(document) > 50 else document
 
             table.add_row(
