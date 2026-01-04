@@ -1,245 +1,140 @@
-"""Store creation form widget for NaRAGtive TUI.
+"""Store form widget for NaRAGtive TUI.
 
-Provides form for registering new vector stores with validation.
+Provides form for creating and editing vector stores with validation.
 """
 
+import re
 from pathlib import Path
-from textual.app import ComposeResult
-from textual.containers import Container, Horizontal, Vertical
-from textual.widgets import Button, Input, Label, Static
-from textual.validation import Integer, Function
+from typing import Optional
 
 
 class StoreNameValidator:
     """Validator for store names.
 
-    Store names must:
-    - Be 1-50 characters
-    - Contain only alphanumeric, underscore, hyphen
+    Rules:
+    - Length: 1-50 characters
     - Start with letter or underscore
+    - Contains only alphanumeric, underscore, hyphen
+    - No spaces or special characters
     """
 
-    @staticmethod
-    def validate(value: str) -> bool:
+    MIN_LENGTH = 1
+    MAX_LENGTH = 50
+    PATTERN = r"^[a-zA-Z_][a-zA-Z0-9_-]*$"
+
+    @classmethod
+    def validate(cls, name: str) -> bool:
         """Validate store name.
 
         Args:
-            value: Store name to validate
+            name: Store name to validate
 
         Returns:
             True if valid, False otherwise
         """
-        if not value or len(value) > 50:
+        if not name:
             return False
-        if not (value[0].isalpha() or value[0] == "_"):
+
+        if len(name) < cls.MIN_LENGTH or len(name) > cls.MAX_LENGTH:
             return False
-        return all(c.isalnum() or c in "_-" for c in value)
+
+        return bool(re.match(cls.PATTERN, name))
+
+    @classmethod
+    def get_error_message(cls, name: str) -> Optional[str]:
+        """Get validation error message if any.
+
+        Args:
+            name: Store name to validate
+
+        Returns:
+            Error message or None if valid
+        """
+        if not name:
+            return "Name cannot be empty"
+
+        if len(name) < cls.MIN_LENGTH:
+            return f"Name must be at least {cls.MIN_LENGTH} character"
+
+        if len(name) > cls.MAX_LENGTH:
+            return f"Name must be at most {cls.MAX_LENGTH} characters"
+
+        if not re.match(cls.PATTERN, name):
+            return "Name must start with letter or underscore, contain only alphanumeric, underscore, or hyphen"
+
+        return None
 
 
 class PathValidator:
-    """Validator for parquet file paths.
+    """Validator for file paths.
 
-    Paths must:
-    - End with .parquet
-    - Point to an existing file
+    Rules:
+    - File must exist
+    - File must have .parquet extension
+    - File must be readable
     """
 
-    @staticmethod
-    def validate(value: str) -> bool:
-        """Validate parquet file path.
+    REQUIRED_EXTENSION = ".parquet"
+
+    @classmethod
+    def validate(cls, path_str: str) -> bool:
+        """Validate file path.
 
         Args:
-            value: File path to validate
+            path_str: Path to validate
 
         Returns:
             True if valid, False otherwise
         """
-        if not value or not value.endswith(".parquet"):
-            return False
-        try:
-            path = Path(value).expanduser().resolve()
-            return path.exists() and path.is_file()
-        except Exception:
+        if not path_str:
             return False
 
+        # Expand tilde
+        path = Path(path_str).expanduser()
 
-class StoreForm(Static):
-    """Form for creating new vector store.
+        # Check existence
+        if not path.exists():
+            return False
 
-    Collects store name, file path, and source type.
-    Emits StoreCreated message on successful submission.
+        # Check is file
+        if not path.is_file():
+            return False
 
-    Attributes:
-        DEFAULT_CSS: Form styling
-    """
+        # Check extension
+        if path.suffix.lower() != cls.REQUIRED_EXTENSION:
+            return False
 
-    CSS = """
-    StoreForm {
-        width: 100%;
-        height: auto;
-        padding: 1 2;
-    }
+        # Check readable
+        if not path.readable():
+            return False
 
-    StoreForm .form-group {
-        width: 100%;
-        height: auto;
-        margin-bottom: 1;
-    }
+        return True
 
-    StoreForm Label {
-        width: 100%;
-        height: 1;
-        margin-bottom: 1;
-    }
-
-    StoreForm Input {
-        width: 100%;
-        height: 1;
-        margin-bottom: 1;
-    }
-
-    StoreForm #form-buttons {
-        width: 100%;
-        height: 1;
-        layout: horizontal;
-        dock: bottom;
-    }
-
-    StoreForm Button {
-        flex: 1;
-        margin-right: 1;
-    }
-
-    StoreForm Button:last-child {
-        margin-right: 0;
-    }
-    """
-
-    class StoreCreated:
-        """Message emitted when store is created.
-
-        Attributes:
-            name: Store name
-            path: File path
-            source_type: Source type
-        """
-
-        def __init__(self, name: str, path: str, source_type: str) -> None:
-            """Initialize message.
-
-            Args:
-                name: Store name
-                path: File path
-                source_type: Source type
-            """
-            self.name = name
-            self.path = path
-            self.source_type = source_type
-
-    class StoreCreationCancelled:
-        """Message emitted when form is cancelled."""
-
-        pass
-
-    def __init__(self, show_cancel: bool = True) -> None:
-        """Initialize store form.
+    @classmethod
+    def get_error_message(cls, path_str: str) -> Optional[str]:
+        """Get validation error message if any.
 
         Args:
-            show_cancel: Whether to show cancel button. Default: True
+            path_str: Path to validate
+
+        Returns:
+            Error message or None if valid
         """
-        super().__init__()
-        self.show_cancel = show_cancel
+        if not path_str:
+            return "Path cannot be empty"
 
-    def compose(self) -> ComposeResult:
-        """Compose form UI.
+        path = Path(path_str).expanduser()
 
-        Yields:
-            Form input fields and buttons
-        """
-        with Vertical():
-            with Container(classes="form-group"):
-                yield Label("Store Name")
-                yield Input(
-                    id="store-name",
-                    placeholder="e.g., campaign-1",
-                )
+        if not path.exists():
+            return f"File not found: {path}"
 
-            with Container(classes="form-group"):
-                yield Label("File Path")
-                yield Input(
-                    id="store-path",
-                    placeholder="e.g., /path/to/scenes.parquet",
-                )
+        if not path.is_file():
+            return f"Not a file: {path}"
 
-            with Container(classes="form-group"):
-                yield Label("Source Type")
-                yield Input(
-                    id="store-type",
-                    placeholder="e.g., neptune, llama-server, chat",
-                )
+        if path.suffix.lower() != cls.REQUIRED_EXTENSION:
+            return f"File must have {cls.REQUIRED_EXTENSION} extension"
 
-            with Horizontal(id="form-buttons"):
-                yield Button("Create", id="create-btn", variant="primary")
-                if self.show_cancel:
-                    yield Button("Cancel", id="cancel-btn", variant="default")
+        if not path.readable():
+            return f"File is not readable: {path}"
 
-    def on_mount(self) -> None:
-        """Focus first input on mount."""
-        self.query_one("#store-name", Input).focus()
-
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        """Handle button presses.
-
-        Args:
-            event: Button pressed event
-        """
-        if event.button.id == "create-btn":
-            self._submit_form()
-        elif event.button.id == "cancel-btn":
-            self.post_message(self.StoreCreationCancelled())
-
-    def _submit_form(self) -> None:
-        """Submit form with validation."""
-        name = self.query_one("#store-name", Input).value.strip()
-        path = self.query_one("#store-path", Input).value.strip()
-        source_type = self.query_one("#store-type", Input).value.strip()
-
-        # Validate name
-        if not name:
-            self._show_error("Store name is required")
-            return
-
-        if not StoreNameValidator.validate(name):
-            self._show_error(
-                "Invalid store name. Use letters, numbers, _ or -. Max 50 chars."
-            )
-            return
-
-        # Validate path
-        if not path:
-            self._show_error("File path is required")
-            return
-
-        if not PathValidator.validate(path):
-            self._show_error("Invalid path. Must be existing .parquet file.")
-            return
-
-        # Validate source type
-        if not source_type:
-            self._show_error("Source type is required")
-            return
-
-        # All valid - emit message
-        self.post_message(self.StoreCreated(name, path, source_type))
-
-    def _show_error(self, message: str) -> None:
-        """Show error message.
-
-        Args:
-            message: Error message to display
-        """
-        # Could integrate with app notification system
-        # For now, just print to console
-        import sys
-
-        print(f"Form error: {message}", file=sys.stderr)
+        return None
