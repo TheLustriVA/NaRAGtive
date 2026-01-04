@@ -1,26 +1,23 @@
 """Statistics screen for NaRAGtive TUI.
 
-Displays detailed information about the current store including:
-- Store metadata (path, type, records, size, created date)
-- Scene breakdown by location (top 5 + other)
-- Scene breakdown by character (top 5)
-- Embedding model info (all-MiniLM-L6-v2, 384 dims)
-- Reranker info if available
+Displays store metadata, scene breakdowns, and embedding info.
+Loads data asynchronously to avoid UI blocking.
 """
 
 import asyncio
+import json
+from collections import Counter
 from pathlib import Path
 from typing import Any, Optional
-from collections import Counter
-import json
 
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Container, Vertical, Horizontal
+from textual.containers import Container, Vertical, Horizontal, ScrollableContainer
 from textual.screen import Screen
-from textual.widgets import Footer, Header, Label, Button, Static
+from textual.widgets import Footer, Header, Static, Label
+from rich.panel import Panel
 from rich.text import Text
-from rich.table import Table
+from rich.console import Console
 
 from naragtive.store_registry import VectorStoreRegistry
 from naragtive.polars_vectorstore import PolarsVectorStore
@@ -29,9 +26,17 @@ from naragtive.polars_vectorstore import PolarsVectorStore
 class StatisticsScreen(Screen[None]):
     """Screen displaying store statistics and metadata.
 
+    Shows:
+    - Store metadata (path, type, records, size, created date)
+    - Scene breakdown by location (top 5 + other)
+    - Scene breakdown by character (top 5)
+    - Embedding model info (all-MiniLM-L6-v2, 384 dims)
+    - Reranker info if available
+
+    Async data collection prevents UI blocking.
+
     Key bindings:
-        'Escape': Return to dashboard
-        'r': Refresh statistics
+        'Escape': Exit to dashboard
 
     Attributes:
         TITLE: Screen title
@@ -41,8 +46,7 @@ class StatisticsScreen(Screen[None]):
     TITLE = "Store Statistics"
 
     BINDINGS = [
-        Binding("r", "refresh", "Refresh", show=True),
-        Binding("escape", "dismiss", "Back", show=True),
+        Binding("escape", "dismiss", "Exit", show=True),
     ]
 
     CSS = """
@@ -50,39 +54,48 @@ class StatisticsScreen(Screen[None]):
         layout: vertical;
     }
 
-    #stats-container {
-        width: 100%;
-        height: 1fr;
-        overflow: auto;
-    }
-
-    #stats-section {
+    #stats-header {
         width: 100%;
         height: auto;
         padding: 1 2;
         border-bottom: solid $accent;
     }
 
-    #stats-section Label {
+    #stats-content {
+        width: 100%;
+        height: 1fr;
+        overflow: auto;
+    }
+
+    .stat-section {
         width: 100%;
         height: auto;
+        padding: 1 2;
+        margin-bottom: 1;
+        border: solid $accent;
+        background: $surface;
+    }
+
+    .stat-title {
+        width: 100%;
+        height: 1;
+        text-style: bold;
+        color: $accent;
         margin-bottom: 1;
     }
 
-    #button-bar {
+    .stat-item {
         width: 100%;
         height: auto;
-        dock: bottom;
-        layout: horizontal;
+        padding: 0 1;
+        color: $text;
     }
 
-    #button-bar Button {
-        flex: 1;
-        margin-right: 1;
-    }
-
-    #button-bar Button:last-child {
-        margin-right: 0;
+    .loading {
+        width: 100%;
+        height: 1;
+        content-align: center middle;
+        color: $text-secondary;
     }
     """
 
@@ -90,188 +103,178 @@ class StatisticsScreen(Screen[None]):
         """Initialize statistics screen."""
         super().__init__()
         self.registry = VectorStoreRegistry()
-        self._loading = False
+        self.store: Optional[PolarsVectorStore] = None
+        self.stats: dict[str, Any] = {}
 
     def compose(self) -> ComposeResult:
         """Compose screen UI.
 
         Yields:
-            Header, statistics container, button bar, Footer
+            Header, content container, Footer
         """
         yield Header()
-        yield Container(id="stats-container")
-        with Horizontal(id="button-bar"):
-            yield Button("Refresh", id="refresh-btn", variant="primary")
-            yield Button("Back", id="back-btn", variant="default")
+        yield Label("Loading statistics...", id="stats-header", classes="loading")
+        yield ScrollableContainer(id="stats-content")
         yield Footer()
 
     def on_mount(self) -> None:
-        """Load statistics on mount."""
-        self.load_worker(self._load_statistics())
-
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        """Handle button presses.
-
-        Args:
-            event: Button pressed event
-        """
-        if event.button.id == "refresh-btn":
-            self.action_refresh()
-        elif event.button.id == "back-btn":
-            self.action_dismiss()
-
-    def action_refresh(self) -> None:
-        """Action to refresh statistics."""
+        """Initialize on mount."""
         self.load_worker(self._load_statistics())
 
     def action_dismiss(self) -> None:
-        """Action to return to dashboard."""
+        """Action to exit to dashboard."""
         self.dismiss()
 
     async def _load_statistics(self) -> None:
-        """Load and display statistics asynchronously."""
-        if self._loading:
-            return
-
-        self._loading = True
-        container = self.query_one("#stats-container", Container)
-        container.query(Label).remove()
-
+        """Load all statistics asynchronously."""
         try:
             # Get default store
             default_name = self.registry.get_default()
             if not default_name:
-                container.mount(Label("[error]No default store set[/error]"))
+                self._show_error("No default store set")
                 return
 
             metadata = self.registry._stores.get(default_name)
             if not metadata:
-                container.mount(Label("[error]Store not found[/error]"))
+                self._show_error("Store not found")
                 return
 
-            # Load store in executor to avoid blocking
+            # Load store in executor
             loop = asyncio.get_event_loop()
-            store = await loop.run_in_executor(
+            self.store = await loop.run_in_executor(
                 None, lambda: PolarsVectorStore(str(metadata.path))
             )
-            await loop.run_in_executor(None, lambda: store.load())
+            await loop.run_in_executor(None, lambda: self.store.load())
 
             # Collect statistics
-            stats = await self._collect_statistics(store, metadata)
+            self.stats = await loop.run_in_executor(
+                None, self._collect_statistics
+            )
 
-            # Display statistics
-            container.query(Label).remove()
-            self._display_statistics(container, stats)
-
+            # Update UI
+            self._render_statistics()
         except Exception as e:
-            container.query(Label).remove()
-            container.mount(Label(f"[error]Error loading statistics: {str(e)}[/error]"))
-        finally:
-            self._loading = False
+            self._show_error(f"Error loading statistics: {str(e)}")
 
-    async def _collect_statistics(self, store: Any, metadata: Any) -> dict[str, Any]:
-        """Collect store statistics.
-
-        Args:
-            store: Loaded PolarsVectorStore instance
-            metadata: Store metadata
+    def _collect_statistics(self) -> dict[str, Any]:
+        """Collect statistics from store.
 
         Returns:
-            Dictionary with statistics
+            Dictionary with collected statistics
         """
-        stats = {
-            "store_name": metadata.name,
-            "store_type": metadata.source_type,
-            "record_count": metadata.record_count,
-            "created_at": metadata.created_at,
-            "path": str(metadata.path),
-            "embedding_model": "all-MiniLM-L6-v2",
-            "embedding_dims": 384,
-            "locations": {},
-            "characters": {},
-        }
+        if not self.store:
+            return {}
 
+        stats = {}
         try:
             # Get dataframe
-            if not store.df or len(store.df) == 0:
-                return stats
+            df = self.store.data
+            if df is None:
+                return {}
 
-            df = store.df
+            stats["total_records"] = len(df)
+            stats["file_size_mb"] = self.store.path.stat().st_size / (1024 * 1024)
 
-            # Count locations
+            # Location breakdown
             if "location" in df.columns:
                 locations = df["location"].value_counts()
-                stats["locations"] = {
+                location_dict = {
                     str(loc): int(count)
-                    for loc, count in zip(locations.to_list()[:5], locations.to_list()[:5])
+                    for loc, count in zip(locations.to_list(), locations.to_list())
                 }
+                # Top 5 + other
+                top_5_locations = dict(sorted(
+                    location_dict.items(),
+                    key=lambda x: x[1],
+                    reverse=True
+                )[:5])
+                other_count = sum(
+                    v for k, v in location_dict.items()
+                    if k not in top_5_locations
+                )
+                if other_count > 0:
+                    top_5_locations["Other"] = other_count
+                stats["locations"] = top_5_locations
 
-            # Count characters
+            # Character breakdown
             if "characters_present" in df.columns:
                 char_counter = Counter()
                 for chars_str in df["characters_present"]:
-                    try:
-                        if isinstance(chars_str, str):
+                    if chars_str is not None:
+                        try:
                             chars = json.loads(chars_str)
-                        else:
-                            chars = chars_str
-                        if isinstance(chars, list):
-                            char_counter.update(chars)
-                    except (json.JSONDecodeError, TypeError):
-                        pass
+                            if isinstance(chars, list):
+                                char_counter.update(chars)
+                        except (json.JSONDecodeError, TypeError):
+                            pass
+                top_5_chars = dict(char_counter.most_common(5))
+                stats["characters"] = top_5_chars
 
-                stats["characters"] = dict(char_counter.most_common(5))
-
-            # File size
-            try:
-                file_size = Path(metadata.path).stat().st_size
-                stats["file_size_mb"] = file_size / (1024 * 1024)
-            except Exception:
-                pass
+            # Model info
+            stats["embedding_model"] = "all-MiniLM-L6-v2"
+            stats["embedding_dims"] = 384
+            stats["reranker_model"] = None
+            stats["reranker_vram"] = None
 
         except Exception as e:
-            pass
+            print(f"Error collecting statistics: {e}")
 
         return stats
 
-    def _display_statistics(self, container: Container, stats: dict[str, Any]) -> None:
-        """Display statistics in container.
+    def _render_statistics(self) -> None:
+        """Render statistics in the UI."""
+        try:
+            content = self.query_one("#stats-content", ScrollableContainer)
+            header = self.query_one("#stats-header", Label)
+
+            # Update header
+            default_name = self.registry.get_default() or "Unknown"
+            header.update(f"Store: {default_name}")
+
+            # Clear content
+            content.query(Static).remove()
+
+            # Add metadata section
+            if self.store:
+                meta_text = f"""
+Path: {self.store.path}
+Records: {self.stats.get('total_records', 'N/A')}
+Size: {self.stats.get('file_size_mb', 0):.2f} MB
+            """
+                content.mount(Static(meta_text, id="meta-section", classes="stat-section"))
+
+            # Add location breakdown
+            if "locations" in self.stats:
+                loc_text = "Scenes by Location:\n"
+                for loc, count in self.stats["locations"].items():
+                    loc_text += f"  {loc}: {count}\n"
+                content.mount(Static(loc_text, id="location-section", classes="stat-section"))
+
+            # Add character breakdown
+            if "characters" in self.stats:
+                char_text = "Top Characters:\n"
+                for char, count in self.stats["characters"].items():
+                    char_text += f"  {char}: {count}\n"
+                content.mount(Static(char_text, id="char-section", classes="stat-section"))
+
+            # Add model info
+            model_text = f"""
+Embedding Model: {self.stats.get('embedding_model', 'N/A')}
+Dimensions: {self.stats.get('embedding_dims', 'N/A')}
+            """
+            content.mount(Static(model_text, id="model-section", classes="stat-section"))
+
+        except Exception as e:
+            self._show_error(f"Error rendering: {str(e)}")
+
+    def _show_error(self, message: str) -> None:
+        """Display error message.
 
         Args:
-            container: Container to display statistics in
-            stats: Statistics dictionary
+            message: Error message to display
         """
-        # Store metadata section
-        with container.mount(Container(id="stats-section")):
-            header = Text(f"Store: {stats['store_name']}", style="bold $accent")
-            yield Label(header)
-            yield Label(
-                f"Type: {stats['store_type']}  |  "
-                f"Records: {stats['record_count']:,}  |  "
-                f"Created: {stats['created_at'].split('T')[0]}"
-            )
-            if "file_size_mb" in stats:
-                yield Label(f"File Size: {stats['file_size_mb']:.2f} MB")
-            yield Label(f"Path: {stats['path']}")
-
-        # Embedding model section
-        with container.mount(Container(id="stats-section")):
-            yield Label("[bold $accent]Embedding Model[/bold]")
-            yield Label(
-                f"Model: {stats['embedding_model']}\n"
-                f"Dimensions: {stats['embedding_dims']}"
-            )
-
-        # Locations breakdown
-        if stats["locations"]:
-            with container.mount(Container(id="stats-section")):
-                yield Label("[bold $accent]Top Locations[/bold]")
-                for loc, count in stats["locations"].items():
-                    yield Label(f"  {loc}: {count} scenes")
-
-        # Characters breakdown
-        if stats["characters"]:
-            with container.mount(Container(id="stats-section")):
-                yield Label("[bold $accent]Top Characters[/bold]")
-                for char, count in stats["characters"].items():
-                    yield Label(f"  {char}: {count} scenes")
+        try:
+            header = self.query_one("#stats-header", Label)
+            header.update(f"[error]{message}[/error]")
+        except Exception:
+            pass
