@@ -159,7 +159,15 @@ class FilterPanel(Static):
 
     def on_mount(self) -> None:
         """Set up focus and handlers on mount."""
-        self.query_one("#filter-location", Input).focus()
+        # Use call_later to ensure inputs are ready
+        self.call_later(self.focus_location_input)
+
+    def focus_location_input(self) -> None:
+        """Focus the location input field."""
+        try:
+            self.query_one("#filter-location", Input).focus()
+        except Exception:
+            pass
 
     def on_input_changed(self, event: Input.Changed) -> None:
         """Handle filter input changes.
@@ -179,6 +187,37 @@ class FilterPanel(Static):
             self.character = input_widget.value
 
         self._emit_filter_changed()
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        """Handle Enter key in filter inputs.
+
+        Args:
+            event: Input submitted event
+        """
+        input_widget = event.input
+        
+        # Move to next input on Enter
+        if input_widget.id == "filter-location":
+            try:
+                self.query_one("#filter-date-start", Input).focus()
+            except Exception:
+                pass
+        elif input_widget.id == "filter-date-start":
+            try:
+                self.query_one("#filter-date-end", Input).focus()
+            except Exception:
+                pass
+        elif input_widget.id == "filter-date-end":
+            try:
+                self.query_one("#filter-character", Input).focus()
+            except Exception:
+                pass
+        elif input_widget.id == "filter-character":
+            # Wrap back to location
+            try:
+                self.query_one("#filter-location", Input).focus()
+            except Exception:
+                pass
 
     def watch_location(self, value: str) -> None:
         """Watch location filter changes.

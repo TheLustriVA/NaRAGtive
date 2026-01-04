@@ -132,9 +132,17 @@ class InteractiveSearchScreen(Screen[None]):
     def on_mount(self) -> None:
         """Initialize on mount."""
         self.run_worker(self._init_store())
-        self.query_one("#search-input", Input).focus()
+        # Focus search input - use call_later to ensure DOM is ready
+        self.call_later(self._focus_search_input)
         self.query_one("#filter-panel", FilterPanel).display = False
         self._setup_table()
+
+    def _focus_search_input(self) -> None:
+        """Focus the search input after DOM is ready."""
+        try:
+            self.query_one("#search-input", Input).focus()
+        except Exception:
+            pass
 
     def _setup_table(self) -> None:
         """Setup results table columns."""
@@ -147,7 +155,8 @@ class InteractiveSearchScreen(Screen[None]):
         Args:
             event: Input submitted event
         """
-        self._execute_search()
+        if event.input.id == "search-input":
+            self._execute_search()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle button presses.
@@ -163,6 +172,16 @@ class InteractiveSearchScreen(Screen[None]):
         filter_panel = self.query_one("#filter-panel", FilterPanel)
         filter_panel.display = not filter_panel.display
         self.filters_visible = filter_panel.display
+        
+        # When showing filter panel, restore focus to first input
+        if self.filters_visible:
+            try:
+                self.call_later(filter_panel.focus_location_input)
+            except Exception:
+                pass
+        else:
+            # When hiding, return focus to search input
+            self.call_later(self._focus_search_input)
 
     def action_clear_filters(self) -> None:
         """Action to clear all filters."""
