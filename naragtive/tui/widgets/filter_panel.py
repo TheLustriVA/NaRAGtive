@@ -4,7 +4,7 @@ Provides UI for filtering search results by location, date range, and character.
 Emits FilterChanged message when filters are modified.
 """
 
-from typing import Optional
+from typing import Any, Optional
 from textual.app import ComposeResult
 from textual.containers import Container, Vertical
 from textual.reactive import reactive
@@ -109,13 +109,14 @@ class FilterPanel(Static):
     date_end: reactive[str] = reactive("")
     character: reactive[str] = reactive("")
 
-    def __init__(self, show_labels: bool = True) -> None:
+    def __init__(self, show_labels: bool = True, **kwargs: Any) -> None:
         """Initialize filter panel.
 
         Args:
             show_labels: Whether to show filter labels. Default: True
+            **kwargs: Additional widget arguments (id, classes, etc.)
         """
-        super().__init__()
+        super().__init__(**kwargs)
         self.show_labels = show_labels
         self.total_results = 0
         self.filtered_results = 0
