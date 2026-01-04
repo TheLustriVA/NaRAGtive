@@ -6,6 +6,7 @@ reranking operations, and result display.
 
 import asyncio
 import json
+from datetime import datetime
 from typing import Any
 
 import numpy as np
@@ -141,6 +142,104 @@ async def async_rerank(
         raise SearchError(f"Reranking timeout after {timeout}s") from e
     except Exception as e:
         raise SearchError(f"Reranking failed: {e}") from e
+
+
+def apply_filters(
+    results: dict[str, Any],
+    location: str | None = None,
+    date_start: str | None = None,
+    date_end: str | None = None,
+    character: str | None = None,
+) -> dict[str, Any]:
+    """Filter search results using set intersection on metadata.
+
+    Filters search results by location, date range, and character.
+    Uses case-insensitive matching for location and character.
+    Dates should be ISO format (YYYY-MM-DD).
+
+    Args:
+        results: Dictionary with keys: 'ids', 'documents', 'scores', 'metadatas'
+        location: Filter by location (case-insensitive partial match). Default: None
+        date_start: Filter by start date ISO format. Default: None
+        date_end: Filter by end date ISO format. Default: None
+        character: Filter by character presence (case-insensitive). Default: None
+
+    Returns:
+        Filtered results with same structure as input
+        Empty lists if no results match
+
+    Example:
+        ```python
+        results = await async_search(store, "Admiral leadership")
+        filtered = apply_filters(
+            results,
+            location="Throne",
+            date_start="2024-01-01",
+            date_end="2024-12-31",
+            character="Admiral"
+        )
+        # Returns only results matching all filters
+        ```
+    """
+    if not results or not results.get("metadatas"):
+        return {"ids": [], "documents": [], "scores": [], "metadatas": []}
+
+    # Build filter indices
+    matching_indices = set(range(len(results["metadatas"])))
+
+    # Filter by location
+    if location:
+        location_lower = location.lower()
+        location_indices = set()
+        for i, metadata in enumerate(results["metadatas"]):
+            loc = metadata.get("location", "").lower()
+            if location_lower in loc:
+                location_indices.add(i)
+        matching_indices &= location_indices
+
+    # Filter by date range
+    if date_start or date_end:
+        date_indices = set()
+        for i, metadata in enumerate(results["metadatas"]):
+            date_str = metadata.get("date_iso", "")
+            try:
+                if date_start and date_str < date_start:
+                    continue
+                if date_end and date_str > date_end:
+                    continue
+                date_indices.add(i)
+            except (ValueError, TypeError):
+                pass
+        matching_indices &= date_indices
+
+    # Filter by character
+    if character:
+        character_lower = character.lower()
+        character_indices = set()
+        for i, metadata in enumerate(results["metadatas"]):
+            chars_str = metadata.get("characters_present", "[]")
+            try:
+                if isinstance(chars_str, str):
+                    chars = json.loads(chars_str)
+                else:
+                    chars = chars_str
+                if any(
+                    character_lower in c.lower() for c in chars if isinstance(c, str)
+                ):
+                    character_indices.add(i)
+            except (json.JSONDecodeError, TypeError):
+                pass
+        matching_indices &= character_indices
+
+    # Build filtered results
+    filtered = {"ids": [], "documents": [], "scores": [], "metadatas": []}
+    for idx in sorted(matching_indices):
+        filtered["ids"].append(results["ids"][idx])
+        filtered["documents"].append(results["documents"][idx])
+        filtered["scores"].append(results["scores"][idx])
+        filtered["metadatas"].append(results["metadatas"][idx])
+
+    return filtered
 
 
 def format_relevance_score(score: float) -> str:
