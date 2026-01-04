@@ -168,19 +168,21 @@ class StatisticsScreen(Screen[None]):
         stats = {}
         try:
             # Get dataframe
-            df = self.store.data
+            df = self.store.df
             if df is None:
                 return {}
 
             stats["total_records"] = len(df)
-            stats["file_size_mb"] = self.store.path.stat().st_size / (1024 * 1024)
+            stats["file_size_mb"] = self.store.parquet_path.stat().st_size / (1024 * 1024)
 
             # Location breakdown
             if "location" in df.columns:
                 locations = df["location"].value_counts()
+                location_list = locations.to_list()
+                count_list = locations.to_list()
                 location_dict = {
                     str(loc): int(count)
-                    for loc, count in zip(locations.to_list(), locations.to_list())
+                    for loc, count in zip(location_list, count_list)
                 }
                 # Top 5 + other
                 top_5_locations = dict(sorted(
@@ -237,7 +239,7 @@ class StatisticsScreen(Screen[None]):
             # Add metadata section
             if self.store:
                 meta_text = f"""
-Path: {self.store.path}
+Path: {self.store.parquet_path}
 Records: {self.stats.get('total_records', 'N/A')}
 Size: {self.stats.get('file_size_mb', 0):.2f} MB
             """
