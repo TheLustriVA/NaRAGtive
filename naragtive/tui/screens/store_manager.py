@@ -96,7 +96,7 @@ class StoreManagerScreen(Screen[None]):
 
     def on_mount(self) -> None:
         """Initialize on mount."""
-        self.load_worker(self._load_stores())
+        self.run_worker(self._load_stores(), exclusive=True)
 
     def action_dismiss(self) -> None:
         """Action to exit to dashboard."""
