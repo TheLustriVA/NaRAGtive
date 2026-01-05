@@ -211,10 +211,15 @@ class TestAsyncRerank:
     async def test_async_rerank_timeout(self) -> None:
         """Test async reranking timeout."""
         mock_reranker = Mock()
-        mock_reranker.rerank = Mock(
-            side_effect=asyncio.sleep(100)
-        )
         
+        # Create proper async function that times out
+        async def slow_rerank(*args, **kwargs):
+            await asyncio.sleep(10)
+            return ([], [])
+        
+        mock_reranker.rerank = slow_rerank
+        
+        # Should timeout
         with pytest.raises(SearchError):
             await async_rerank(
                 mock_reranker,
